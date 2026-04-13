@@ -23,6 +23,7 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+      start_period: 40s
 
   audio-processor:
     image: ghcr.io/nikiforidi/crate-digger-audio-processor:${AUDIO_VERSION:-v1.0.2}
@@ -36,6 +37,7 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+      start_period: 40s
 
 networks:
   app-net: { driver: bridge }
