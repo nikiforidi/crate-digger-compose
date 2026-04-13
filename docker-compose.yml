@@ -1,0 +1,29 @@
+# docker-compose.yml (root репозитория)
+version: '3.8'
+
+services:
+  gateway:
+    image: nginx:alpine
+    env_file:
+      - .env
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    networks:
+      - app-net
+    depends_on:
+      - crate-digger
+      - audio-processor
+    restart: unless-stopped
+
+networks:
+  app-net:
+    driver: bridge
+
+# Подключаем существующие конфиги сервисов
+include:
+  - path: ./services/crate-digger/docker-compose.prod.yml
+    env_file: ./services/crate-digger/.env
+  - path: ./services/audio-processor/docker-compose.prod.yml
+    env_file: ./services/audio-processor/.env
