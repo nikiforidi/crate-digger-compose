@@ -13,7 +13,7 @@ services:
 
   crate-digger:
     image: ghcr.io/nikiforidi/crate-digger:${CRATE_VERSION:-1.0.2}
-    expose: ["8080"]
+    expose: ["8000"]
     networks: [app-net]
     restart: unless-stopped
     environment:
@@ -27,7 +27,7 @@ services:
 
   audio-processor:
     image: ghcr.io/nikiforidi/crate-digger-audio-processor:${AUDIO_VERSION:-v1.0.2}
-    expose: ["8081"]
+    expose: ["3000"]
     networks: [app-net]
     restart: unless-stopped
     environment:
