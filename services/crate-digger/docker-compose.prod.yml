@@ -30,7 +30,7 @@ services:
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4
     # ✅ Load ALL env vars from .env.prod
     env_file:
-      - .env.prod
+      - .env
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
@@ -60,7 +60,7 @@ services:
     command: celery -A app.worker.celery worker --loglevel=info --concurrency=4
     # ✅ Load ALL env vars from .env.prod
     env_file:
-      - .env.prod
+      - .env
     depends_on:
       db:
         condition: service_healthy
@@ -84,7 +84,7 @@ services:
     command: celery -A app.worker.celery beat --loglevel=info
     # ✅ Load ALL env vars from .env.prod
     env_file:
-      - .env.prod
+      - .env
     depends_on:
       - redis
     restart: unless-stopped
