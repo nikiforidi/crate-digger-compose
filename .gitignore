@@ -1,1 +1,4 @@
-*.env
+# .gitignore
+.env
+.env.local
+!.env.example

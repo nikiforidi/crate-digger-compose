@@ -1,0 +1,22 @@
+name: Integration Test
+on: [push, pull_request, workflow_dispatch]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GHCR_TOKEN }}
+      - run: docker compose up -d --pull always --wait
+      - name: Health Checks
+        run: |
+          curl -sf http://localhost/health
+          curl -sf http://localhost/api/crate/health
+          curl -sf http://localhost/api/audio/health
+      - name: Cleanup
+        if: always()
+        run: docker compose down -v
