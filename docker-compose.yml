@@ -28,7 +28,6 @@ services:
   audio-processor:
     image: ghcr.io/nikiforidi/crate-digger-audio-processor:${AUDIO_VERSION:-v1.0.2}
     expose: ["3000"]
-    command: uvicorn app.main:app --host 0.0.0.0 --port 3000 --workers 2
     env_file: [.env.example]
     depends_on:
       db: { condition: service_healthy }
