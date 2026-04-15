@@ -27,13 +27,12 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GHCR_PAT }}
 
-      - name: Start stack
+     - name: Start stack
         run: |
-          # Экспорт для интерполяции ${VAR} в YAML
+          # Экспорт для интерполяции ${VAR} в docker-compose.yml
           set -a
           source .env.example
           set +a
-          # Запуск с env_file для передачи внутрь контейнеров
           docker compose --env-file .env.example up -d --pull always --wait
 
       - name: Health Checks

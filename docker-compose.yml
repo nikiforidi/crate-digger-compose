@@ -13,6 +13,14 @@ services:
   crate-digger:
     image: ghcr.io/nikiforidi/crate-digger:${CRATE_VERSION:-1.0.2}
     expose: ["8000"]
+    environment:
+      - NODE_ENV=test
+      - DATABASE_URL=${DATABASE_URL}
+      - REDIS_URL=${REDIS_URL}
+      - S3_ENDPOINT_URL=${S3_ENDPOINT_URL}
+      - S3_ACCESS_KEY=${S3_ACCESS_KEY}
+      - S3_SECRET_KEY=${S3_SECRET_KEY}
+      - S3_BUCKET_NAME=${S3_BUCKET_NAME}
     env_file: [.env.example]
     depends_on:
       redis: { condition: service_healthy }
@@ -23,7 +31,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 30s
+      start_period: 40s
 
   audio-processor:
     image: ghcr.io/nikiforidi/crate-digger-audio-processor:${AUDIO_VERSION:-v1.0.2}
