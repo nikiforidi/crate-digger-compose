@@ -27,7 +27,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GHCR_PAT }}
 
-     - name: Start stack
+      - name: Start stack
         run: |
           # Экспорт для интерполяции ${VAR} в docker-compose.yml
           set -a
