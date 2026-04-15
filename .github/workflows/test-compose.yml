@@ -28,7 +28,13 @@ jobs:
           password: ${{ secrets.GHCR_PAT }}
 
       - name: Start stack
-        run: docker compose --env-file .env.example up -d --pull always --wait
+        run: |
+          # Экспорт для интерполяции ${VAR} в YAML
+          set -a
+          source .env.example
+          set +a
+          # Запуск с env_file для передачи внутрь контейнеров
+          docker compose --env-file .env.example up -d --pull always --wait
 
       - name: Health Checks
         run: |
