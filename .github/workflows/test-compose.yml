@@ -25,7 +25,7 @@ jobs:
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
-          password: ${{ secrets.GHRC_PAT }}
+          password: ${{ secrets.GHCR_PAT }}
 
       - name: Start stack
         run: docker compose --env-file .env.example up -d --pull always --wait
