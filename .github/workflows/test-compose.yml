@@ -29,10 +29,15 @@ jobs:
 
       - name: Start stack
         run: |
-          # Экспорт для интерполяции ${VAR} в docker-compose.yml
+          # 1. Загружаем .env.example для базовых переменных
           set -a
           source .env.example
+          
+          # 2. Перезаписываем секрет из GitHub Secrets
+          export DISCOGS_TOKEN="${{ secrets.DISCOGS_TOKEN }}"
           set +a
+          
+          # 3. Запускаем стек (переменные уже в окружении → интерполяция сработает)
           docker compose --env-file .env.example up -d --pull always --wait
 
       - name: Health Checks
