@@ -1,4 +1,4 @@
-name: Integration Test
+name: CI Integration Test
 
 on:
   push:
@@ -25,17 +25,7 @@ jobs:
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
-          password: ${{ secrets.GHCR_PAT }}
-
-      - name: Prepare environment
-        run: |
-          # Экспортируем переменные в окружение шага (для интерполяции ${VAR})
-          echo "DB_PASSWORD=${{ secrets.DB_PASSWORD }}" >> $GITHUB_ENV
-          echo "REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD }}" >> $GITHUB_ENV
-          echo "S3_ACCESS_KEY=${{ secrets.S3_ACCESS_KEY }}" >> $GITHUB_ENV
-          echo "S3_SECRET_KEY=${{ secrets.S3_SECRET_KEY }}" >> $GITHUB_ENV
-          echo "S3_BUCKET_NAME=test-bucket" >> $GITHUB_ENV
-          echo "POSTGRES_DB=crate_digger" >> $GITHUB_ENV
+          password: ${{ secrets.GITHUB_PAT }}
 
       - name: Start stack
         run: docker compose --env-file .env.example up -d --pull always --wait
