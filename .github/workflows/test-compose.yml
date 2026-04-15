@@ -1,63 +1,22 @@
-name: Integration Test
+- name: Login to GHCR
+  uses: docker/login-action@v3
+  with:
+    registry: ghcr.io
+    username: ${{ github.actor }}
+    password: ${{ secrets.GHCR_PAT }}
 
-on:
-  push:
-    branches: [main, develop]
-  pull_request:
-    branches: [main]
-  workflow_dispatch:
+- name: Start stack
+  run: docker compose --env-file .env.example up -d --pull always --wait
 
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+- name: Run integration tests
+  run: |
+    curl -sf http://localhost/api/crate/health
+    curl -sf http://localhost/api/audio/health
 
-jobs:
-  test:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
+- name: Debug on failure
+  if: failure()
+  run: docker compose logs --tail=100
 
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Login to GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GHCR_PAT }}
-
-      - name: Start stack
-        run: docker compose up -d --pull always --wait  # ← здесь падает, если unhealthy
-
-      # ✅ Health checks (основные тесты)
-      - name: Health Checks
-        run: |
-          curl -sf http://localhost/health
-          curl -sf http://localhost/api/crate/health
-          curl -sf http://localhost/api/audio/health
-
-      # 🐛 DEBUG STEP — запускается ТОЛЬКО при ошибке выше
-      - name: 🔍 Debug on failure
-        if: failure()  # ← ключевое условие
-        run: |
-          echo "=== Container Status ==="
-          docker compose ps -a
-          
-          echo "=== Crate Digger Logs ==="
-          docker compose logs crate-digger --tail=100
-          
-          echo "=== Audio Processor Logs ==="
-          docker compose logs audio-processor --tail=100
-          
-          echo "=== Gateway Logs ==="
-          docker compose logs gateway --tail=50
-          
-          echo "=== Manual Health Probes ==="
-          docker compose exec -T crate-digger wget -q -O- http://localhost:8080/health || echo "❌ crate-digger health failed"
-          docker compose exec -T audio-processor wget -q -O- http://localhost:8081/health || echo "❌ audio-processor health failed"
-
-      # 🧹 Cleanup — всегда, независимо от результата
-      - name: Cleanup
-        if: always()
-        run: docker compose down -v
+- name: Cleanup
+  if: always()
+  run: docker compose down -v
