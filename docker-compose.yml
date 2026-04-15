@@ -11,7 +11,7 @@ services:
     networks: [app-net]
 
   crate-digger:
-    image: ghcr.io/nikiforidi/crate-digger:${CRATE_VERSION:-1.0.2}
+    image: ghcr.io/nikiforidi/crate-digger:${CRATE_VERSION:-1.0.3}
     expose: ["8000"]
     environment:
       - NODE_ENV=test
