@@ -107,6 +107,7 @@ services:
 
   createbuckets:
     image: minio/mc:latest
+    restart: "no"
     depends_on:
       minio: { condition: service_healthy }
     entrypoint: >

@@ -38,7 +38,10 @@ jobs:
           set +a
           
           # 3. Запускаем стек (переменные уже в окружении → интерполяция сработает)
-          docker compose --env-file .env.example up -d --pull always --wait
+          docker compose --env-file .env.example up -d --pull always --wait gateway crate-digger audio-processor db redis minio
+      
+      - name: Init MinIO buckets
+        run: docker compose --env-file .env.example run --rm createbuckets
 
       - name: Health Checks
         run: |
