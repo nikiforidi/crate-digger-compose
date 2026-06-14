@@ -1,16 +1,13 @@
 name: CI Integration Test
-
 on:
   push:
     branches: [main, develop]
   pull_request:
     branches: [main]
   workflow_dispatch:
-
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
-
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -28,51 +25,46 @@ jobs:
 
       - name: Start stack
         run: |
-          # 1. Загружаем .env.example для базовых переменных
+          # 1. Load base variables from .env.example
           set -a
           source .env.example
           
-          # 2. Перезаписываем секрет из GitHub Secrets
+          # 2. Override sensitive values with GitHub Secrets
           export DISCOGS_TOKEN="${{ secrets.DISCOGS_TOKEN }}"
-          
-          # (Optional) Provide dummy Telegram creds for CI if not in secrets, 
-          # so the relay service can at least boot and pass healthchecks
-          export API_ID="${{ secrets.API_ID || 12345678 }}"
-          export API_HASH="${{ secrets.API_HASH || 'dummy_ci_hash' }}"
-          export PHONE="${{ secrets.PHONE || '+1234567890' }}"
-          export TARGET_BOT="${{ secrets.TARGET_BOT || 'dummy_bot' }}"
-          
+          export API_ID="${{ secrets.API_ID }}"
+          export API_HASH="${{ secrets.API_HASH }}"
+          export PHONE="${{ secrets.PHONE }}"
+          export TARGET_BOT="${{ secrets.TARGET_BOT }}"
           set +a
           
-          # 3. Запускаем стек (переменные уже в окружении → интерполяция сработает)
-          # ✅ REPLACED audio-processor with relay-api, relay-worker, preview-api, preview-worker
+          # 3. Start the full stack (Docker will wait for healthchecks to pass)
           docker compose --env-file .env.example up -d --pull always --wait \
-            gateway \
-            crate-digger \
-            relay-api \
-            relay-worker \
-            preview-api \
-            preview-worker \
-            db \
-            redis \
-            minio
-  
+            gateway crate-digger relay-api relay-worker preview-api preview-worker db redis minio
+      
       - name: Init MinIO buckets
         run: docker compose --env-file .env.example run --rm createbuckets
 
       - name: Health Checks
         run: |
-          # ✅ UPDATED: Check new microservice endpoints instead of /api/audio/health
+          echo "🔍 Checking Gateway..."
           curl -sf http://localhost/health
+          
+          echo "🔍 Checking Crate Digger API..."
           curl -sf http://localhost/api/crate/health
+          
+          echo "🔍 Checking ytb-audio-relay API..."
           curl -sf http://localhost/api/relay/health
+          
+          echo "🔍 Checking ytb-audio-preview API..."
           curl -sf http://localhost/api/preview/health
 
       - name: Debug on failure
         if: failure()
         run: |
+          echo "📦 Container Status:"
           docker compose ps -a
-          docker compose logs --tail=100 relay-api relay-worker preview-api preview-worker
+          echo "📜 Recent Logs:"
+          docker compose logs --tail=100
 
       - name: Cleanup
         if: always()
