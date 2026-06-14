@@ -25,9 +25,15 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GHCR_PAT }}
 
-      # 🔑 CRITICAL: Decode the Telegram session from GitHub Secrets into ./sessions/
+      # 🔑 CRITICAL: Decode the Telegram session from GitHub Secrets
       - name: Prepare Telegram Session
         run: |
+          # Fail fast if the secret is missing
+          if [ -z "${{ secrets.TG_SESSION_BASE64 }}" ]; then
+            echo "❌ ERROR: TG_SESSION_BASE64 secret is not set in GitHub Secrets!"
+            exit 1
+          fi
+          
           mkdir -p ./sessions
           echo "${{ secrets.TG_SESSION_BASE64 }}" | base64 --decode > ./sessions/ytb_session.session
           chmod 600 ./sessions/ytb_session.session
@@ -46,7 +52,7 @@ jobs:
           export PHONE="${{ secrets.TG_PHONE }}"
           set +a
           
-          # 3. Start the full stack (Replaced audio-processor with new microservices)
+          # 3. Start the full stack (Updated with new microservices)
           docker compose --env-file .env.example up -d --pull always --wait \
             gateway crate-digger relay-api relay-worker preview-api preview-worker db redis minio
       
@@ -77,5 +83,5 @@ jobs:
 
       - name: Cleanup
         if: always()
-        # 🔑 Pass --env-file to suppress "variable not set" warnings during teardown
+        # 🔑 FIX: Pass --env-file to suppress "variable not set" warnings during teardown
         run: docker compose --env-file .env.example down -v
