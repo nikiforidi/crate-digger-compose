@@ -40,7 +40,7 @@ services:
 
   # === Service 2: ytb-audio-relay (Python/FastAPI + ARQ) ===
   relay-api:
-    image: ghcr.io/nikiforidi/ytb-audio-relay:${RELAY_VERSION:-latest}
+    image: ghcr.io/nikiforidi/ytb-audio-relay/app:${RELAY_VERSION:-latest}
     expose: ["8000"]
     environment:
       - API_ID=${API_ID}
@@ -70,7 +70,7 @@ services:
     restart: unless-stopped
 
   relay-worker:
-    image: ghcr.io/nikiforidi/ytb-audio-relay:${RELAY_VERSION:-latest}
+    image: ghcr.io/nikiforidi/ytb-audio-relay/app:${RELAY_VERSION:-latest}
     environment:
       - API_ID=${API_ID}
       - API_HASH=${API_HASH}
