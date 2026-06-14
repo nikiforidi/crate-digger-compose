@@ -43,9 +43,9 @@ services:
     image: ghcr.io/nikiforidi/ytb-audio-relay:${RELAY_VERSION:-latest}
     expose: ["8000"]
     environment:
-      - API_ID=${API_ID}
-      - API_HASH=${API_HASH}
-      - PHONE=${PHONE}
+      - API_ID=${API_ID:-123456}       # 🔑 Fallback to dummy int if missing
+      - API_HASH=${API_HASH:-dummy}    # 🔑 Fallback to dummy string if missing
+      - PHONE=${PHONE:-+10000000000}   # 🔑 Fallback to dummy string if missing
       - SESSION_NAME=/app/sessions/ytb_session
       - MINIO_ENDPOINT=minio:9000
       - MINIO_ACCESS_KEY=${S3_ACCESS_KEY}
@@ -72,9 +72,9 @@ services:
   relay-worker:
     image: ghcr.io/nikiforidi/ytb-audio-relay:${RELAY_VERSION:-latest}
     environment:
-      - API_ID=${API_ID}
-      - API_HASH=${API_HASH}
-      - PHONE=${PHONE}
+      - API_ID=${API_ID:-123456}       # 🔑 Fallback to dummy int if missing
+      - API_HASH=${API_HASH:-dummy}    # 🔑 Fallback to dummy string if missing
+      - PHONE=${PHONE:-+10000000000}   # 🔑 Fallback to dummy string if missing
       - SESSION_NAME=/app/sessions/ytb_session
       - MINIO_ENDPOINT=minio:9000
       - MINIO_ACCESS_KEY=${S3_ACCESS_KEY}

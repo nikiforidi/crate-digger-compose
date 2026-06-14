@@ -34,7 +34,6 @@ jobs:
           export API_ID="${{ secrets.API_ID }}"
           export API_HASH="${{ secrets.API_HASH }}"
           export PHONE="${{ secrets.PHONE }}"
-          export TARGET_BOT="${{ secrets.TARGET_BOT }}"
           set +a
           
           # 3. Start the full stack (Docker will wait for healthchecks to pass)
