@@ -25,7 +25,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GHCR_PAT }}
 
-      # 🔑 NEW STEP: Decode the Telegram session from GitHub Secrets
+      # 🔑 CRITICAL: Decode the Telegram session from GitHub Secrets into ./sessions/
       - name: Prepare Telegram Session
         run: |
           mkdir -p ./sessions
@@ -39,14 +39,14 @@ jobs:
           set -a
           source .env.example
           
-          # 2. Inject GitHub Secrets into environment
+          # 2. Inject GitHub Secrets
           export DISCOGS_TOKEN="${{ secrets.DISCOGS_TOKEN }}"
           export API_ID="${{ secrets.TG_API_ID }}"
           export API_HASH="${{ secrets.TG_API_HASH }}"
           export PHONE="${{ secrets.TG_PHONE }}"
           set +a
           
-          # 3. Start the full stack
+          # 3. Start the full stack (Replaced audio-processor with new microservices)
           docker compose --env-file .env.example up -d --pull always --wait \
             gateway crate-digger relay-api relay-worker preview-api preview-worker db redis minio
       
@@ -77,4 +77,5 @@ jobs:
 
       - name: Cleanup
         if: always()
-        run: docker compose down -v
+        # 🔑 Pass --env-file to suppress "variable not set" warnings during teardown
+        run: docker compose --env-file .env.example down -v

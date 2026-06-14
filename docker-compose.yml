@@ -111,7 +111,8 @@ services:
       minio: { condition: service_healthy }
     networks: [app-net]
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      # 🔑 Use Python instead of curl, since python:3.11-slim doesn't have curl
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -195,9 +196,6 @@ services:
       /usr/bin/mc anonymous set public myminio/ytb-audio-previews &&
       exit 0"
     networks: [app-net]
-
-volumes:
-  relay_sessions: # Persists Telegram session across restarts
 
 networks:
   app-net:
