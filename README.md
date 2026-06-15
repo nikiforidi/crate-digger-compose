@@ -9,12 +9,12 @@ This repository (`api-gateway` / `crate-digger-compose`) acts as the unified ent
 | Component | Type | Install / Pull Command | Status |
 | :--- | :--- | :--- | :--- |
 | **Crate Digger API** | Docker | `docker pull ghcr.io/nikiforidi/crate-digger:latest` | ![Docker](https://img.shields.io/badge/GHCR-crate--digger-blue?logo=docker) |
-| **Crate Digger TS** | npm | `npm i @nikiforidi/crate-digger-ts` | ![npm](https://img.shields.io/npm/v/@nikiforidi/crate-digger-ts?logo=npm) |
+| **Crate Digger TS** | npm | `npm i @nikiforidi/crate-digger-ts` | ![npm](https://img.shields.io/badge/npm-@nikiforidi/crate--digger--ts-blue?logo=npm) |
 | **YTB Audio Relay** | Docker | `docker pull ghcr.io/nikiforidi/ytb-audio-relay:latest` | ![Docker](https://img.shields.io/badge/GHCR-ytb--audio--relay-blue?logo=docker) |
-| **YTB Audio Relay TS** | npm | `npm i @nikiforidi/ytb-audio-relay-client` | ![npm](https://img.shields.io/npm/v/@nikiforidi/ytb-audio-relay-client?logo=npm) |
+| **YTB Audio Relay TS** | npm | `npm i @nikiforidi/ytb-audio-relay-client` | ![npm](https://img.shields.io/badge/npm-@nikiforidi/ytb--audio--relay--client-blue?logo=npm) |
 | **YTB Audio Preview** | Docker | `docker pull ghcr.io/nikiforidi/ytb-audio-preview:latest` | ![Docker](https://img.shields.io/badge/GHCR-ytb--audio--preview-blue?logo=docker) |
-| **YTB Audio Preview TS** | npm | `npm i @nikiforidi/ytb-audio-preview-client` | ![npm](https://img.shields.io/npm/v/@nikiforidi/ytb-audio-preview-client?logo=npm) |
-| **Audio Toolkit** | PyPI | `pip install audio-preview-toolkit` | ![PyPI](https://img.shields.io/pypi/v/audio-preview-toolkit?logo=pypi) |
+| **YTB Audio Preview TS** | npm | `npm i @nikiforidi/ytb-audio-preview-client` | ![npm](https://img.shields.io/badge/npm-@nikiforidi/ytb--audio--preview--client-blue?logo=npm) |
+| **Audio Toolkit** | PyPI | `pip install audio-preview-toolkit` | ![PyPI](https://img.shields.io/badge/PyPI-audio--preview--toolkit-blue?logo=pypi) |
 
 ---
 
