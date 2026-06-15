@@ -4,6 +4,20 @@ Welcome to the central orchestration repository for the **Crate Digger Audio Eco
 
 This repository (`api-gateway` / `crate-digger-compose`) acts as the unified entry point for the entire platform. It houses the **Nginx API Gateway** and the master **`docker-compose.yml`** that binds together a suite of decoupled, event-driven microservices, shared infrastructure, and background workers.
 
+## 📦 Packages & Artifacts
+
+| Component | Type | Install / Pull Command | Status |
+| :--- | :--- | :--- | :--- |
+| **Crate Digger API** | Docker | `docker pull ghcr.io/nikiforidi/crate-digger:latest` | ![Docker](https://img.shields.io/badge/GHCR-crate--digger-blue?logo=docker) |
+| **Crate Digger TS** | npm | `npm i @nikiforidi/crate-digger-ts` | ![npm](https://img.shields.io/npm/v/@nikiforidi/crate-digger-ts?logo=npm) |
+| **YTB Audio Relay** | Docker | `docker pull ghcr.io/nikiforidi/ytb-audio-relay:latest` | ![Docker](https://img.shields.io/badge/GHCR-ytb--audio--relay-blue?logo=docker) |
+| **YTB Audio Relay TS** | npm | `npm i @nikiforidi/ytb-audio-relay-client` | ![npm](https://img.shields.io/npm/v/@nikiforidi/ytb-audio-relay-client?logo=npm) |
+| **YTB Audio Preview** | Docker | `docker pull ghcr.io/nikiforidi/ytb-audio-preview:latest` | ![Docker](https://img.shields.io/badge/GHCR-ytb--audio--preview-blue?logo=docker) |
+| **YTB Audio Preview TS** | npm | `npm i @nikiforidi/ytb-audio-preview-client` | ![npm](https://img.shields.io/npm/v/@nikiforidi/ytb-audio-preview-client?logo=npm) |
+| **Audio Toolkit** | PyPI | `pip install audio-preview-toolkit` | ![PyPI](https://img.shields.io/pypi/v/audio-preview-toolkit?logo=pypi) |
+
+---
+
 ## 🏗️ High-Level Architecture
 
 The ecosystem follows a microservices architecture, utilizing **Redis Pub/Sub** for asynchronous event broadcasting and **MinIO** for distributed object storage.
@@ -74,19 +88,19 @@ sequenceDiagram
 
 The ecosystem is split into **11 distinct repositories**, following a strict separation of concerns. Each microservice has its own API, TypeScript client, and dedicated E2E testing suite.
 
-| Repository | Role | Tech Stack | Dependencies |
-| :--- | :--- | :--- | :--- |
-| **`crate-digger-compose`** *(This Repo)* | Orchestration, Routing & Infra | Docker, Nginx | All microservices |
-| [`audio-preview-toolkit`](https://github.com/nikiforidi/audio-preview-toolkit) | Core Audio Processing Logic | Python, Pydub, FFmpeg | Published to **PyPI** |
-| [`crate-digger`](https://github.com/nikiforidi/crate-digger) | Metadata & Discogs API | Python, FastAPI, SQLAlchemy | Postgres, Redis, MinIO |
-| [`crate-digger-ts`](https://github.com/nikiforidi/crate-digger-ts) | TS Client for Crate Digger | TypeScript, Fetch API | Published to **npm** |
-| [`crate-digger-e2e`](https://github.com/nikiforidi/crate-digger-e2e) | E2E Tests for Crate Digger | TypeScript, Vitest | GHCR images, `crate-digger-ts` |
-| [`ytb-audio-relay`](https://github.com/nikiforidi/ytb-audio-relay) | Telegram Audio Downloader | Python, FastAPI, Telethon, ARQ | Redis, MinIO |
-| [`ytb-audio-relay-client`](https://github.com/nikiforidi/ytb-audio-relay-client) | TS Client for Relay | TypeScript, Fetch API | Published to **npm** |
-| [`ytb-audio-relay-e2e`](https://github.com/nikiforidi/ytb-audio-relay-e2e) | E2E Tests for Relay | TypeScript, Vitest | GHCR images, `ytb-audio-relay-client` |
-| [`ytb-audio-preview`](https://github.com/nikiforidi/ytb-audio-preview) | Audio Preview Generator | Python, FastAPI, ARQ | Redis, MinIO, `audio-preview-toolkit` |
-| [`ytb-audio-preview-client`](https://github.com/nikiforidi/ytb-audio-preview-client) | TS Client for Preview | TypeScript, Fetch API | Published to **npm** |
-| [`ytb-audio-preview-e2e`](https://github.com/nikiforidi/ytb-audio-preview-e2e) | E2E Tests for Preview | TypeScript, Vitest | GHCR images, `ytb-audio-preview-client` |
+| Repository | Role | Tech Stack |
+| :--- | :--- | :--- |
+| **`crate-digger-compose`** *(This Repo)* | Orchestration, Routing & Infra | Docker, Nginx |
+| [`audio-preview-toolkit`](https://github.com/nikiforidi/audio-preview-toolkit) | Core Audio Processing Logic | Python, Pydub, FFmpeg |
+| [`crate-digger`](https://github.com/nikiforidi/crate-digger) | Metadata & Discogs API | Python, FastAPI, SQLAlchemy |
+| [`crate-digger-ts`](https://github.com/nikiforidi/crate-digger-ts) | TS Client for Crate Digger | TypeScript, Fetch API |
+| [`crate-digger-e2e`](https://github.com/nikiforidi/crate-digger-e2e) | E2E Tests for Crate Digger | TypeScript, Vitest |
+| [`ytb-audio-relay`](https://github.com/nikiforidi/ytb-audio-relay) | Telegram Audio Downloader | Python, FastAPI, Telethon, ARQ |
+| [`ytb-audio-relay-client`](https://github.com/nikiforidi/ytb-audio-relay-client) | TS Client for Relay | TypeScript, Fetch API |
+| [`ytb-audio-relay-e2e`](https://github.com/nikiforidi/ytb-audio-relay-e2e) | E2E Tests for Relay | TypeScript, Vitest |
+| [`ytb-audio-preview`](https://github.com/nikiforidi/ytb-audio-preview) | Audio Preview Generator | Python, FastAPI, ARQ |
+| [`ytb-audio-preview-client`](https://github.com/nikiforidi/ytb-audio-preview-client) | TS Client for Preview | TypeScript, Fetch API |
+| [`ytb-audio-preview-e2e`](https://github.com/nikiforidi/ytb-audio-preview-e2e) | E2E Tests for Preview | TypeScript, Vitest |
 
 ---
 
@@ -121,20 +135,14 @@ curl http://localhost/api/relay/health
 curl http://localhost/api/preview/health
 ```
 
-### Viewing Logs
-```bash
-# Follow logs for a specific microservice
-docker compose logs -f ytb-audio-preview-worker
-```
-
 ---
 
 ## 🛡️ CI/CD & Testing Architecture
 
 The ecosystem relies on a robust, multi-layered CI/CD pipeline powered by GitHub Actions.
 
-1.  **Unit Tests (`ci.yml`)**: Each microservice repository runs `pytest` and `pre-commit` hooks on every push.
-2.  **Docker Publishing**: When a SemVer tag (e.g., `v1.2.3`) is pushed, GitHub Actions builds the Docker image and publishes it to **GitHub Container Registry (GHCR)**.
+1.  **Unit Tests (`ci.yml`)**: Each microservice repository runs `pytest`/`vitest` and `pre-commit`/`lint-staged` hooks on every push.
+2.  **Docker / NPM Publishing**: When a SemVer tag (e.g., `v1.2.3`) is pushed, GitHub Actions builds the Docker image or TS package and publishes it to **GHCR** or **npm**.
 3.  **E2E Integration (`*-e2e` repos)**: 
     *   The E2E repositories pull the **latest published GHCR images**.
     *   They install the **latest published npm TS clients**.
@@ -153,3 +161,89 @@ The Nginx gateway strips the prefixes and routes traffic to the internal Docker 
 | `http://localhost/api/crate/*` | `crate-digger` | `8000` |
 | `http://localhost/api/relay/*` | `ytb-audio-relay` | `8000` |
 | `http://localhost/api/preview/*` | `ytb-audio-preview` | `8000` |
+```
+
+---
+
+### 🤖 Completing Dependabot Configuration
+
+Now that the README is perfect, let's finish configuring **Dependabot** for the rest of your repositories. We will use the `groups` feature to bundle minor/patch updates into a single weekly PR, keeping your inbox clean.
+
+#### 📦 Type C: TypeScript Clients
+**Applies to:** `crate-digger-ts`, `ytb-audio-relay-client`, `ytb-audio-preview-client`
+
+These repos only have npm dependencies and GitHub Actions.
+
+```yaml
+# .github/dependabot.yml
+version: 2
+updates:
+  # 1. GitHub Actions
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule: { interval: "weekly", day: "monday", time: "09:00" }
+    commit-message: { prefix: "chore", include: "scope" }
+
+  # 2. Node.js Dependencies (npm)
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule: { interval: "weekly", day: "monday", time: "09:00" }
+    commit-message: { prefix: "chore", include: "scope" }
+    groups:
+      npm-minor-patch:
+        update-types: ["minor", "patch"]
+        patterns: ["*"]
+```
+
+#### 🧪 Type D: E2E Test Repositories
+**Applies to:** `crate-digger-e2e`, `ytb-audio-relay-e2e`, `ytb-audio-preview-e2e`
+
+These repos have npm dependencies (for Vitest and the TS clients), GitHub Actions, and Docker (for the `docker-compose.yml` files).
+
+```yaml
+# .github/dependabot.yml
+version: 2
+updates:
+  # 1. GitHub Actions
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule: { interval: "weekly", day: "monday", time: "09:00" }
+    commit-message: { prefix: "chore", include: "scope" }
+
+  # 2. Node.js Dependencies (npm)
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule: { interval: "weekly", day: "monday", time: "09:00" }
+    commit-message: { prefix: "chore", include: "scope" }
+    groups:
+      npm-minor-patch:
+        update-types: ["minor", "patch"]
+        patterns: ["*"]
+
+  # 3. Docker (Base images in docker-compose.yml)
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule: { interval: "weekly", day: "monday", time: "09:00" }
+    commit-message: { prefix: "chore", include: "scope" }
+```
+
+#### 🌐 Type E: API Gateway / Orchestration
+**Applies to:** `crate-digger-compose` (This Repo)
+
+This repo only has Docker (for `docker-compose.yml` and `Dockerfile` if any) and GitHub Actions.
+
+```yaml
+# .github/dependabot.yml
+version: 2
+updates:
+  # 1. GitHub Actions
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule: { interval: "weekly", day: "monday", time: "09:00" }
+    commit-message: { prefix: "chore", include: "scope" }
+
+  # 2. Docker (Base images like nginx:alpine, redis:7-alpine)
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule: { interval: "weekly", day: "monday", time: "09:00" }
+    commit-message: { prefix: "chore", include: "scope" }
