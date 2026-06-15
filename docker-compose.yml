@@ -11,7 +11,7 @@ services:
     networks: [app-net]
     restart: unless-stopped
 
-  # === Service 1: crate-digger (Python/FastAPI) ===
+  # === Service 1: crate-digger ===
   crate-digger:
     image: ghcr.io/nikiforidi/crate-digger:${CRATE_VERSION:-1.0.3}
     expose: ["8000"]
@@ -38,14 +38,14 @@ services:
       start_period: 40s
     restart: unless-stopped
 
-  # === Service 2: ytb-audio-relay (Python/FastAPI + ARQ) ===
+  # === Service 2: ytb-audio-relay ===
   relay-api:
     image: ghcr.io/nikiforidi/ytb-audio-relay:${RELAY_VERSION:-latest}
     expose: ["8000"]
     environment:
-      - API_ID=${API_ID:-123456}       # 🔑 Fallback to dummy int if missing
-      - API_HASH=${API_HASH:-dummy}    # 🔑 Fallback to dummy string if missing
-      - PHONE=${PHONE:-+10000000000}   # 🔑 Fallback to dummy string if missing
+      - API_ID=${API_ID:-123456}
+      - API_HASH=${API_HASH:-dummy}
+      - PHONE=${PHONE:-+10000000000}
       - SESSION_NAME=/app/sessions/ytb_session
       - MINIO_ENDPOINT=minio:9000
       - MINIO_ACCESS_KEY=${S3_ACCESS_KEY}
@@ -54,6 +54,8 @@ services:
       - MINIO_PUBLIC_URL=${MINIO_PUBLIC_URL:-http://localhost:9000}
       - MINIO_BUCKET=${S3_BUCKET_NAME}
       - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
+    volumes:
+      - ./sessions:/app/sessions
     depends_on:
       redis: { condition: service_healthy }
       minio: { condition: service_healthy }
@@ -70,9 +72,9 @@ services:
   relay-worker:
     image: ghcr.io/nikiforidi/ytb-audio-relay:${RELAY_VERSION:-latest}
     environment:
-      - API_ID=${API_ID:-123456}       # 🔑 Fallback to dummy int if missing
-      - API_HASH=${API_HASH:-dummy}    # 🔑 Fallback to dummy string if missing
-      - PHONE=${PHONE:-+10000000000}   # 🔑 Fallback to dummy string if missing
+      - API_ID=${API_ID:-123456}
+      - API_HASH=${API_HASH:-dummy}
+      - PHONE=${PHONE:-+10000000000}
       - SESSION_NAME=/app/sessions/ytb_session
       - MINIO_ENDPOINT=minio:9000
       - MINIO_ACCESS_KEY=${S3_ACCESS_KEY}
@@ -81,16 +83,21 @@ services:
       - MINIO_PUBLIC_URL=${MINIO_PUBLIC_URL:-http://localhost:9000}
       - MINIO_BUCKET=${S3_BUCKET_NAME}
       - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
+    volumes:
+      - ./sessions:/app/sessions
     depends_on:
       redis: { condition: service_healthy }
       minio: { condition: service_healthy }
     networks: [app-net]
     command: python -m arq worker.WorkerSettings
     restart: unless-stopped
+    # 🔑 MAGIC BULLET 1: Disable healthcheck for background ARQ worker
+    healthcheck:
+      disable: true
 
-  # === Service 3: ytb-audio-preview (Python/FastAPI + ARQ) ===
+  # === Service 3: ytb-audio-preview ===
   preview-api:
-    image: ghcr.io/nikiforidi/ytb-audio-preview:${PREVIEW_VERSION:-latest}
+    image: ghcr.io/nikiforidi/ytb-audio-preview:${PREVIEW_VERSION:-v0.1.2}
     expose: ["8000"]
     environment:
       - MINIO_ENDPOINT=minio:9000
@@ -107,7 +114,6 @@ services:
       minio: { condition: service_healthy }
     networks: [app-net]
     healthcheck:
-      # 🔑 Use Python instead of curl, since python:3.11-slim doesn't have curl
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 10s
       timeout: 5s
@@ -115,11 +121,9 @@ services:
       start_period: 20s
     command: uvicorn main:app --host 0.0.0.0 --port 8000
     restart: unless-stopped
-    volumes:
-      - ./sessions:/app/sessions  # 👈 Bind mount to local folder
 
   preview-worker:
-    image: ghcr.io/nikiforidi/ytb-audio-preview:${PREVIEW_VERSION:-latest}
+    image: ghcr.io/nikiforidi/ytb-audio-preview:${PREVIEW_VERSION:-v0.1.2}
     environment:
       - MINIO_ENDPOINT=minio:9000
       - MINIO_ACCESS_KEY=${S3_ACCESS_KEY}
@@ -136,6 +140,9 @@ services:
     networks: [app-net]
     command: python -m arq worker.WorkerSettings
     restart: unless-stopped
+    # 🔑 MAGIC BULLET 1 (Again): Disable healthcheck for background ARQ worker
+    healthcheck:
+      disable: true
 
   # === Shared Infrastructure ===
   db:
@@ -178,6 +185,7 @@ services:
       start_period: 10s
     restart: unless-stopped
 
+  # 🔑 MAGIC BULLET 3: Dedicated init container for buckets
   createbuckets:
     image: minio/mc:latest
     restart: "no"

@@ -14,6 +14,14 @@ jobs:
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    
+    # 🔑 Set Telegram secrets at the job level so docker compose inherits them
+    env:
+      API_ID: ${{ secrets.TG_API_ID }}
+      API_HASH: ${{ secrets.TG_API_HASH }}
+      PHONE: ${{ secrets.TG_PHONE }}
+      DISCOGS_TOKEN: ${{ secrets.DISCOGS_TOKEN }}
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -25,37 +33,50 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GHCR_PAT }}
 
-      # 🔑 CRITICAL: Decode the Telegram session from GitHub Secrets
+      # 🔑 EXACT MIRROR OF THE WORKING E2E REPO
       - name: Prepare Telegram Session
         run: |
-          # Fail fast if the secret is missing
-          if [ -z "${{ secrets.TG_SESSION_BASE64 }}" ]; then
-            echo "❌ ERROR: TG_SESSION_BASE64 secret is not set in GitHub Secrets!"
+          mkdir -p ./sessions
+          chmod 777 ./sessions
+          
+          # tr -d '\n\r' removes hidden newlines from GitHub Secrets
+          echo "${{ secrets.TG_SESSION_BASE64 }}" | tr -d '\n\r' | base64 --decode > ./sessions/ytb_session.session
+          chmod 666 ./sessions/ytb_session.session
+          
+          echo "✅ Session file prepared:"
+          ls -la ./sessions/
+          if [ ! -s ./sessions/ytb_session.session ]; then
+            echo "❌ CRITICAL ERROR: Decoded session file is EMPTY (0 bytes)!"
             exit 1
           fi
-          
-          mkdir -p ./sessions
-          echo "${{ secrets.TG_SESSION_BASE64 }}" | base64 --decode > ./sessions/ytb_session.session
-          chmod 600 ./sessions/ytb_session.session
-          echo "✅ Telegram session decoded successfully."
 
       - name: Start stack
         run: |
           # 1. Load base variables
           set -a
           source .env.example
-          
-          # 2. Inject GitHub Secrets
-          export DISCOGS_TOKEN="${{ secrets.DISCOGS_TOKEN }}"
-          export API_ID="${{ secrets.TG_API_ID }}"
-          export API_HASH="${{ secrets.TG_API_HASH }}"
-          export PHONE="${{ secrets.TG_PHONE }}"
           set +a
           
-          # 3. Start the full stack (Updated with new microservices)
-          docker compose --env-file .env.example up -d --pull always --wait \
+          # 🔑 NO --wait FLAG! The workers have healthchecks disabled.
+          docker compose --env-file .env.example up -d --pull always \
             gateway crate-digger relay-api relay-worker preview-api preview-worker db redis minio
-      
+
+      # 🔑 Manual wait loop (Copied from the working E2E repo)
+      - name: Wait for API readiness
+        run: |
+          echo "Waiting for APIs to become ready..."
+          for i in {1..30}; do
+            if curl -sf http://localhost/api/crate/health && \
+               curl -sf http://localhost/api/relay/health && \
+               curl -sf http://localhost/api/preview/health; then
+              echo "✅ All APIs are ready!"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "❌ APIs failed to become ready in 60 seconds"
+          exit 1
+
       - name: Init MinIO buckets
         run: docker compose --env-file .env.example run --rm createbuckets
 
@@ -83,5 +104,4 @@ jobs:
 
       - name: Cleanup
         if: always()
-        # 🔑 FIX: Pass --env-file to suppress "variable not set" warnings during teardown
         run: docker compose --env-file .env.example down -v
