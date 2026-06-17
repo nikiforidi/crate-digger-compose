@@ -27,6 +27,7 @@ services:
       - EMAIL_BACKEND=${EMAIL_BACKEND:-unisender}
     depends_on:
       db: { condition: service_healthy }
+      db-init: { condition: service_completed_successfully }
       redis: { condition: service_healthy }
     networks: [app-net]
     healthcheck:
@@ -81,6 +82,7 @@ services:
       - JWT_SECRET_KEY=${JWT_SECRET_KEY}
     depends_on:
       db: { condition: service_healthy }
+      db-init: { condition: service_completed_successfully }
       redis: { condition: service_healthy }
       crate-digger: { condition: service_healthy }
       auth-service: { condition: service_healthy }
