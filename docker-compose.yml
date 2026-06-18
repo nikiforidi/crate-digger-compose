@@ -1,15 +1,60 @@
 services:
+  services:
   # === API Gateway ===
   gateway:
+    image: ghcr.io/nikiforidi/api-gateway:${GATEWAY_VERSION:-latest}
+    expose: ["8000"]
+    environment:
+      - AUTH_SERVICE_URL=http://auth-service:8000
+      - ECONOMY_SERVICE_URL=http://economy-service:8000
+      - CRATE_SERVICE_URL=http://crate-digger:8000
+      - RELAY_SERVICE_URL=http://relay-api:8000
+      - PREVIEW_SERVICE_URL=http://preview-api:8000
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY}
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/3  # 🔑 Отдельная DB
+      - HTTP_TIMEOUT=30.0
+      - ENVIRONMENT=${ENVIRONMENT:-production}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - RATE_LIMIT_DEFAULT=100/minute
+      - RATE_LIMIT_AUTH=10/minute
+      - CIRCUIT_BREAKER_FAIL_MAX=5
+      - CIRCUIT_BREAKER_RESET_TIMEOUT=60
+      - CACHE_TTL_RELEASES=3600
+      - CACHE_TTL_SELLERS=60
+      - CACHE_TTL_USERS=300
+    depends_on:
+      auth-service: { condition: service_healthy }
+      economy-service: { condition: service_healthy }
+      crate-digger: { condition: service_healthy }
+      relay-api: { condition: service_healthy }
+      preview-api: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    networks: [app-net]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+
+  # === Prometheus (мониторинг) ===
+  prometheus:
+    image: prom/prometheus:latest
+    ports: ["9090:9090"]
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    networks: [app-net]
+    restart: unless-stopped
+
+  # === Nginx (проксирует на gateway) ===
+  nginx:
     image: nginx:alpine
     ports: ["${GATEWAY_PORT:-80}:80"]
     volumes: ["./nginx.conf:/etc/nginx/nginx.conf:ro"]
     depends_on:
-      auth-service: { condition: service_healthy }
-      crate-digger: { condition: service_healthy }
-      economy-service: { condition: service_healthy }
-      relay-api: { condition: service_healthy }
-      preview-api: { condition: service_healthy }
+      gateway: { condition: service_healthy }
     networks: [app-net]
     restart: unless-stopped
 
@@ -283,6 +328,7 @@ volumes:
   postgres-data:
   redis-data:
   minio-data:
+  prometheus-data:
 
 networks:
   app-net:

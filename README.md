@@ -175,3 +175,18 @@ The Nginx gateway strips the prefixes and routes traffic to the internal Docker 
 | `http://localhost/api/economy/*` | economy-service | 8000 |
 | `http://localhost/api/relay/*` | ytb-audio-relay | 8000 |
 | `http://localhost/api/preview/*` | ytb-audio-preview | 8000 |
+
+## 🛡️ Production Features
+
+### Structured Logging
+Все запросы логируются в JSON формате с `correlation_id` для трассировки:
+```json
+{
+  "event": "request_completed",
+  "correlation_id": "abc-123",
+  "user_id": "user-uuid",
+  "method": "GET",
+  "path": "/api/v1/releases/12345",
+  "status_code": 200,
+  "duration_ms": 45.2
+}
