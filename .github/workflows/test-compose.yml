@@ -17,104 +17,104 @@ jobs:
     timeout-minutes: 15
 
     # 🔑 Set environment variables at the job level so docker compose inherits them
-  env:
-    API_ID: ${{ secrets.TG_API_ID }}
-    API_HASH: ${{ secrets.TG_API_HASH }}
-    PHONE: ${{ secrets.TG_PHONE }}
-    DISCOGS_TOKEN: ${{ secrets.DISCOGS_TOKEN }}
-    JWT_SECRET_KEY: ${{ secrets.JWT_SECRET_KEY }}
-    UNISENDER_API_KEY: ${{ secrets.UNISENDER_API_KEY }}
-    UNISENDER_LIST_ID: ${{ secrets.UNISENDER_LIST_ID }}
-    YOOKASSA_SHOP_ID: ${{ secrets.YOOKASSA_SHOP_ID }}
-    YOOKASSA_SECRET_KEY: ${{ secrets.YOOKASSA_SECRET_KEY }}
+    env:
+      API_ID: ${{ secrets.TG_API_ID }}
+      API_HASH: ${{ secrets.TG_API_HASH }}
+      PHONE: ${{ secrets.TG_PHONE }}
+      DISCOGS_TOKEN: ${{ secrets.DISCOGS_TOKEN }}
+      JWT_SECRET_KEY: ${{ secrets.JWT_SECRET_KEY }}
+      UNISENDER_API_KEY: ${{ secrets.UNISENDER_API_KEY }}
+      UNISENDER_LIST_ID: ${{ secrets.UNISENDER_LIST_ID }}
+      YOOKASSA_SHOP_ID: ${{ secrets.YOOKASSA_SHOP_ID }}
+      YOOKASSA_SECRET_KEY: ${{ secrets.YOOKASSA_SECRET_KEY }}
 
-  steps:
-    - name: Checkout
-      uses: actions/checkout@v4
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
 
-    - name: Login to GHCR
-      uses: docker/login-action@v3
-      with:
-        registry: ghcr.io
-        username: ${{ github.actor }}
-        password: ${{ secrets.GHCR_PAT }}
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GHCR_PAT }}
 
-    # 🔑 EXACT MIRROR OF THE WORKING E2E REPO
-    - name: Prepare Telegram Session
-      run: |
-        mkdir -p ./sessions
-        chmod 777 ./sessions
-        
-        # tr -d '\n\r' removes hidden newlines from GitHub Secrets
-        echo "${{ secrets.TG_SESSION_BASE64 }}" | tr -d '\n\r' | base64 --decode > ./sessions/ytb_session.session
-        chmod 666 ./sessions/ytb_session.session
-        
-        echo "✅ Session file prepared: "
-        ls -la ./sessions/
-        if [ ! -s ./sessions/ytb_session.session ]; then
-          echo "❌ CRITICAL ERROR: Decoded session file is EMPTY (0 bytes)!"
-          exit 1
-        fi
-
-    - name: Start stack
-      run: |
-        # 1. Load base variables
-        set -a
-        source .env.example
-        set +a
-        
-        # 🔑 NO --wait FLAG! The workers have healthchecks disabled.
-        docker compose --env-file .env.example up -d --pull always \
-          gateway auth-service economy-service crate-digger \
-          relay-api relay-worker preview-api preview-worker \
-          db db-init redis minio createbuckets
-
-    # 🔑 Manual wait loop (Copied from the working E2E repo)
-    - name: Wait for API readiness
-      run: |
-        echo "Waiting for APIs to become ready..."
-        for i in {1..30}; do
-          if curl -sf http://localhost/api/crate/health && \
-            curl -sf http://localhost/api/relay/health && \
-            curl -sf http://localhost/api/preview/health && \
-            curl -sf http://localhost/api/auth/health && \
-            curl -sf http://localhost/api/economy/health; then
-            echo "✅ All APIs are ready!"
-            exit 0
+      # 🔑 EXACT MIRROR OF THE WORKING E2E REPO
+      - name: Prepare Telegram Session
+        run: |
+          mkdir -p ./sessions
+          chmod 777 ./sessions
+          
+          # tr -d '\n\r' removes hidden newlines from GitHub Secrets
+          echo "${{ secrets.TG_SESSION_BASE64 }}" | tr -d '\n\r' | base64 --decode > ./sessions/ytb_session.session
+          chmod 666 ./sessions/ytb_session.session
+          
+          echo "✅ Session file prepared: "
+          ls -la ./sessions/
+          if [ ! -s ./sessions/ytb_session.session ]; then
+            echo "❌ CRITICAL ERROR: Decoded session file is EMPTY (0 bytes)!"
+            exit 1
           fi
-          sleep 2
-        done
-        echo "❌ APIs failed to become ready in 60 seconds"
-        exit 1
 
-    - name: Health Checks
-      run: |
-        echo "🔍 Checking Gateway..."
-        curl -sf http://localhost/health
-        
-        echo "🔍 Checking Auth Service..."
-        curl -sf http://localhost/api/auth/health
-        
-        echo "🔍 Checking Economy Service..."
-        curl -sf http://localhost/api/economy/health
-        
-        echo "🔍 Checking Crate Digger API..."
-        curl -sf http://localhost/api/crate/health
-        
-        echo "🔍 Checking ytb-audio-relay API..."
-        curl -sf http://localhost/api/relay/health
-        
-        echo "🔍 Checking ytb-audio-preview API..."
-        curl -sf http://localhost/api/preview/health
+      - name: Start stack
+        run: |
+          # 1. Load base variables
+          set -a
+          source .env.example
+          set +a
+          
+          # 🔑 NO --wait FLAG! The workers have healthchecks disabled.
+          docker compose --env-file .env.example up -d --pull always \
+            gateway auth-service economy-service crate-digger \
+            relay-api relay-worker preview-api preview-worker \
+            db db-init redis minio createbuckets
 
-    - name: Debug on failure
-      if: failure()
-      run: |
-        echo "📦 Container Status:"
-        docker compose ps -a
-        echo "📜 Recent Logs:"
-        docker compose logs --tail=100
+      # 🔑 Manual wait loop (Copied from the working E2E repo)
+      - name: Wait for API readiness
+        run: |
+          echo "Waiting for APIs to become ready..."
+          for i in {1..30}; do
+            if curl -sf http://localhost/api/crate/health && \
+              curl -sf http://localhost/api/relay/health && \
+              curl -sf http://localhost/api/preview/health && \
+              curl -sf http://localhost/api/auth/health && \
+              curl -sf http://localhost/api/economy/health; then
+              echo "✅ All APIs are ready!"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "❌ APIs failed to become ready in 60 seconds"
+          exit 1
 
-    - name: Cleanup
-      if: always()
-      run: docker compose --env-file .env.example down -v
+      - name: Health Checks
+        run: |
+          echo "🔍 Checking Gateway..."
+          curl -sf http://localhost/health
+          
+          echo "🔍 Checking Auth Service..."
+          curl -sf http://localhost/api/auth/health
+          
+          echo "🔍 Checking Economy Service..."
+          curl -sf http://localhost/api/economy/health
+          
+          echo "🔍 Checking Crate Digger API..."
+          curl -sf http://localhost/api/crate/health
+          
+          echo "🔍 Checking ytb-audio-relay API..."
+          curl -sf http://localhost/api/relay/health
+          
+          echo "🔍 Checking ytb-audio-preview API..."
+          curl -sf http://localhost/api/preview/health
+
+      - name: Debug on failure
+        if: failure()
+        run: |
+          echo "📦 Container Status:"
+          docker compose ps -a
+          echo "📜 Recent Logs:"
+          docker compose logs --tail=100
+
+      - name: Cleanup
+        if: always()
+        run: docker compose --env-file .env.example down -v
