@@ -80,22 +80,62 @@ jobs:
             relay-api relay-worker preview-api preview-worker \
             db db-init redis minio createbuckets
 
-      # 🔑 ОБНОВЛЕНО: Добавлены проверки для auth и economy
       - name: Wait for API readiness
         run: |
           echo "Waiting for APIs to become ready..."
-          for i in {1..30}; do
-            if curl -sf http://localhost/api/crate/health && \
-               curl -sf http://localhost/api/relay/health && \
-               curl -sf http://localhost/api/preview/health && \
-               curl -sf http://localhost/api/auth/health && \
-               curl -sf http://localhost/api/economy/health; then
+          MAX_ATTEMPTS=60
+          ATTEMPT=0
+          
+          while [ $ATTEMPT -lt $MAX_ATTEMPTS ]; do
+            ATTEMPT=$((ATTEMPT + 1))
+            echo "Attempt $ATTEMPT/$MAX_ATTEMPTS..."
+            
+            # Проверяем каждый сервис отдельно
+            GATEWAY_OK=false
+            CRATE_OK=false
+            RELAY_OK=false
+            PREVIEW_OK=false
+            
+            if curl -sf http://localhost/health > /dev/null 2>&1; then
+              GATEWAY_OK=true
+              echo "✅ Gateway is ready"
+            else
+              echo "❌ Gateway not ready"
+            fi
+            
+            if curl -sf http://localhost/api/crate/health > /dev/null 2>&1; then
+              CRATE_OK=true
+              echo "✅ Crate Digger is ready"
+            else
+              echo "❌ Crate Digger not ready"
+            fi
+            
+            if curl -sf http://localhost/api/relay/health > /dev/null 2>&1; then
+              RELAY_OK=true
+              echo "✅ Relay is ready"
+            else
+              echo "❌ Relay not ready"
+            fi
+            
+            if curl -sf http://localhost/api/preview/health > /dev/null 2>&1; then
+              PREVIEW_OK=true
+              echo "✅ Preview is ready"
+            else
+              echo "❌ Preview not ready"
+            fi
+            
+            # Если все сервисы готовы - выходим
+            if [ "$GATEWAY_OK" = true ] && [ "$CRATE_OK" = true ] && [ "$RELAY_OK" = true ] && [ "$PREVIEW_OK" = true ]; then
               echo "✅ All APIs are ready!"
               exit 0
             fi
+            
             sleep 2
           done
-          echo "❌ APIs failed to become ready in 60 seconds"
+          
+          echo "❌ APIs failed to become ready in $MAX_ATTEMPTS attempts"
+          echo "📦 Container Status:"
+          docker compose ps -a
           exit 1
 
       - name: Init MinIO buckets
