@@ -16,17 +16,27 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
-    # 🔑 Set environment variables at the job level so docker compose inherits them
+    # 🔑 Set environment variables at the job level
     env:
+      # Telegram & Discogs
       API_ID: ${{ secrets.TG_API_ID }}
       API_HASH: ${{ secrets.TG_API_HASH }}
       PHONE: ${{ secrets.TG_PHONE }}
       DISCOGS_TOKEN: ${{ secrets.DISCOGS_TOKEN }}
-      JWT_SECRET_KEY: ${{ secrets.JWT_SECRET_KEY }}
-      UNISENDER_API_KEY: ${{ secrets.UNISENDER_API_KEY }}
-      UNISENDER_LIST_ID: ${{ secrets.UNISENDER_LIST_ID }}
-      YOOKASSA_SHOP_ID: ${{ secrets.YOOKASSA_SHOP_ID }}
-      YOOKASSA_SECRET_KEY: ${{ secrets.YOOKASSA_SECRET_KEY }}
+      
+      # 🔑 НОВОЕ: Переменные для auth-service и economy-service
+      JWT_SECRET_KEY: "ci_test_jwt_secret_key_12345"
+      UNISENDER_API_KEY: "ci_test_unisender_api_key"
+      UNISENDER_LIST_ID: "ci_test_unisender_list_id"
+      YOOKASSA_SHOP_ID: "ci_test_yookassa_shop_id"
+      YOOKASSA_SECRET_KEY: "ci_test_yookassa_secret_key"
+      
+      # 🔑 НОВОЕ: Переменные для инфраструктуры
+      DB_PASSWORD: "ci_test_postgres_password"
+      REDIS_PASSWORD: "ci_test_redis_password"
+      S3_ACCESS_KEY: "minioadmin"
+      S3_SECRET_KEY: "minioadmin"
+      S3_BUCKET_NAME: "test-bucket"
 
     steps:
       - name: Checkout
@@ -39,16 +49,12 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GHCR_PAT }}
 
-      # 🔑 EXACT MIRROR OF THE WORKING E2E REPO
       - name: Prepare Telegram Session
         run: |
           mkdir -p ./sessions
           chmod 777 ./sessions
-          
-          # tr -d '\n\r' removes hidden newlines from GitHub Secrets
           echo "${{ secrets.TG_SESSION_BASE64 }}" | tr -d '\n\r' | base64 --decode > ./sessions/ytb_session.session
           chmod 666 ./sessions/ytb_session.session
-          
           echo "✅ Session file prepared: "
           ls -la ./sessions/
           if [ ! -s ./sessions/ytb_session.session ]; then
@@ -69,16 +75,16 @@ jobs:
             relay-api relay-worker preview-api preview-worker \
             db db-init redis minio createbuckets
 
-      # 🔑 Manual wait loop (Copied from the working E2E repo)
+      # 🔑 ОБНОВЛЕНО: Добавлены проверки для auth и economy
       - name: Wait for API readiness
         run: |
           echo "Waiting for APIs to become ready..."
           for i in {1..30}; do
             if curl -sf http://localhost/api/crate/health && \
-              curl -sf http://localhost/api/relay/health && \
-              curl -sf http://localhost/api/preview/health && \
-              curl -sf http://localhost/api/auth/health && \
-              curl -sf http://localhost/api/economy/health; then
+               curl -sf http://localhost/api/relay/health && \
+               curl -sf http://localhost/api/preview/health && \
+               curl -sf http://localhost/api/auth/health && \
+               curl -sf http://localhost/api/economy/health; then
               echo "✅ All APIs are ready!"
               exit 0
             fi
@@ -87,6 +93,10 @@ jobs:
           echo "❌ APIs failed to become ready in 60 seconds"
           exit 1
 
+      - name: Init MinIO buckets
+        run: docker compose --env-file .env.example run --rm createbuckets
+
+      # 🔑 ОБНОВЛЕНО: Добавлены проверки для auth и economy
       - name: Health Checks
         run: |
           echo "🔍 Checking Gateway..."
@@ -107,11 +117,16 @@ jobs:
           echo "🔍 Checking ytb-audio-preview API..."
           curl -sf http://localhost/api/preview/health
 
+      # 🔑 ОБНОВЛЕНО: Добавлен вывод логов упавших сервисов
       - name: Debug on failure
         if: failure()
         run: |
           echo "📦 Container Status:"
           docker compose ps -a
+          echo "📜 Auth Service Logs:"
+          docker compose logs auth-service --tail=50
+          echo "📜 Economy Service Logs:"
+          docker compose logs economy-service --tail=50
           echo "📜 Recent Logs:"
           docker compose logs --tail=100
 
