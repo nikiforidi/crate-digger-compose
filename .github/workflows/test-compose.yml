@@ -61,6 +61,11 @@ jobs:
             echo "❌ CRITICAL ERROR: Decoded session file is EMPTY (0 bytes)!"
             exit 1
           fi
+      
+      - name: Cleanup old volumes
+        run: |
+          docker compose down -v || true
+          docker volume prune -f || true
 
       - name: Start stack
         run: |
