@@ -1,5 +1,4 @@
 services:
-  services:
   # === API Gateway ===
   gateway:
     image: ghcr.io/nikiforidi/api-gateway:${GATEWAY_VERSION:-latest}
