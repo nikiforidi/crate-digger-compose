@@ -38,6 +38,13 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GHCR_PAT }}
+      
+      - name: Cleanup old volumes
+        run: |
+          echo "🧹 Cleaning up old volumes..."
+          docker compose down -v 2>/dev/null || true
+          docker volume prune -f 2>/dev/null || true
+          echo "✅ Cleanup complete"
 
       - name: Prepare Telegram Session
         run: |
