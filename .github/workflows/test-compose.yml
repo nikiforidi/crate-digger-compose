@@ -55,21 +55,32 @@ jobs:
           # Базовые значения из .env.testing, секреты из env блока выше
           docker compose --env-file .env.testing up -d --pull always
 
+      - name: Run database migrations (Alembic)
+        run: |
+          echo "🗄️ Applying Alembic migrations..."
+          echo "→ auth-service"
+          docker compose --env-file .env.testing run --rm --no-deps auth-service alembic upgrade head
+          echo "→ crate-digger"
+          docker compose --env-file .env.testing run --rm --no-deps crate-digger alembic upgrade head
+          echo "→ economy-service"
+          docker compose --env-file .env.testing run --rm --no-deps economy-service alembic upgrade head
+          echo "✅ All migrations applied"
+
       - name: Wait for API readiness
         run: |
-          echo "Waiting for APIs to become ready..."
+          echo  "Waiting for APIs to become ready... "
           for i in {1..30}; do
-            if curl -sf http://localhost/api/crate/health && \
-               curl -sf http://localhost/api/relay/health && \
-               curl -sf http://localhost/api/preview/health && \
-               curl -sf http://localhost/api/auth/health && \
-               curl -sf http://localhost/api/economy/health; then
-              echo "✅ All APIs are ready!"
+            if curl -sf http://localhost/api/crate/health  & & \
+              curl -sf http://localhost/api/relay/health  & & \
+              curl -sf http://localhost/api/preview/health  & & \
+              curl -sf http://localhost/api/auth/health  & & \
+              curl -sf http://localhost/api/economy/health; then
+              echo  "✅ All APIs are ready! "
               exit 0
             fi
             sleep 2
           done
-          echo "❌ APIs failed to become ready in 60 seconds"
+          echo  "❌ APIs failed to become ready in 60 seconds "
           exit 1
 
       - name: Init MinIO buckets
