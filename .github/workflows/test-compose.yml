@@ -70,11 +70,8 @@ jobs:
         run: |
           echo "Waiting for APIs to become ready..."
           for i in {1..30}; do
-            if curl -sf http://localhost/api/crate/health && \
-              curl -sf http://localhost/api/relay/health && \
-              curl -sf http://localhost/api/preview/health && \
-              curl -sf http://localhost/api/auth/health && \
-              curl -sf http://localhost/api/economy/health; then
+            # Проверяем health gateway (он зависит от всех backend-сервисов с condition: service_healthy)
+            if curl -sf http://localhost/health > /dev/null; then
               echo "✅ All APIs are ready!"
               exit 0
             fi
