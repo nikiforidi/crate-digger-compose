@@ -90,10 +90,10 @@ jobs:
           
           echo ""
           echo "🔍 Checking all services status via docker compose..."
-          # Проверяем ТОЛЬКО сервисы с включённым healthcheck
-          # (nginx, prometheus, relay-worker, preview-worker — без healthcheck, их пропускаем)
-          UNHEALTHY=$(docker compose --env-file .env.testing ps --format "{{.Name}} {{.Status}}" | \
-            grep -E "auth-service|crate-digger|economy-service|relay-api|preview-api|gateway-1|db-1|redis-1|minio-1" | \
+          # Используем {{.Service}} вместо {{.Name}} — это имя сервиса, а не контейнера
+          # Паттерн матчит только нужные сервисы с включённым healthcheck
+          UNHEALTHY=$(docker compose --env-file .env.testing ps --format "{{.Service}} {{.Status}}" | \
+            grep -E "^(auth-service|crate-digger|economy-service|relay-api|preview-api|gateway|db|redis|minio) " | \
             grep -v "(healthy)" || true)
           
           if [ -n "$UNHEALTHY" ]; then
@@ -103,8 +103,8 @@ jobs:
           fi
           
           echo "✅ All services are healthy!"
-          docker compose --env-file .env.testing ps --format "table {{.Name}}\t{{.Status}}" | \
-            grep -E "auth-service|crate-digger|economy-service|relay-api|preview-api|gateway-1|db-1|redis-1|minio-1"
+          docker compose --env-file .env.testing ps --format "table {{.Service}}\t{{.Status}}" | \
+            grep -E "^(auth-service|crate-digger|economy-service|relay-api|preview-api|gateway|db|redis|minio) "
 
       - name: Debug on failure
         if: failure()
