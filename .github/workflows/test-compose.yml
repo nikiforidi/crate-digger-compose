@@ -90,9 +90,10 @@ jobs:
           
           echo ""
           echo "🔍 Checking all services status via docker compose..."
-          # Проверяем, что все ключевые сервисы имеют статус (healthy)
+          # Проверяем ТОЛЬКО сервисы с включённым healthcheck
+          # (nginx, prometheus, relay-worker, preview-worker — без healthcheck, их пропускаем)
           UNHEALTHY=$(docker compose --env-file .env.testing ps --format "{{.Name}} {{.Status}}" | \
-            grep -E "auth-service|crate-digger|economy-service|relay-api|preview-api|gateway|db|redis|minio" | \
+            grep -E "auth-service|crate-digger|economy-service|relay-api|preview-api|gateway-1|db-1|redis-1|minio-1" | \
             grep -v "(healthy)" || true)
           
           if [ -n "$UNHEALTHY" ]; then
@@ -103,7 +104,7 @@ jobs:
           
           echo "✅ All services are healthy!"
           docker compose --env-file .env.testing ps --format "table {{.Name}}\t{{.Status}}" | \
-            grep -E "auth-service|crate-digger|economy-service|relay-api|preview-api|gateway|db|redis|minio"
+            grep -E "auth-service|crate-digger|economy-service|relay-api|preview-api|gateway-1|db-1|redis-1|minio-1"
 
       - name: Debug on failure
         if: failure()
