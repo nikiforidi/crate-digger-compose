@@ -70,11 +70,8 @@ jobs:
         run: |
           echo "Waiting for APIs to become ready..."
           for i in {1..30}; do
-            if curl -sf http://localhost/api/crate/health && \
-              curl -sf http://localhost/api/relay/health && \
-              curl -sf http://localhost/api/preview/health && \
-              curl -sf http://localhost/api/auth/health && \
-              curl -sf http://localhost/api/economy/health; then
+            # Проверяем health gateway (он зависит от всех backend-сервисов с condition: service_healthy)
+            if curl -sf http://localhost/health > /dev/null; then
               echo "✅ All APIs are ready!"
               exit 0
             fi
@@ -86,19 +83,25 @@ jobs:
       - name: Init MinIO buckets
         run: docker compose --env-file .env.testing run --rm createbuckets
 
-      - name: Wait for API readiness
+      - name: Health Checks
         run: |
-          echo "Waiting for APIs to become ready..."
-          for i in {1..30}; do
-            # Проверяем health gateway (он зависит от всех backend-сервисов с condition: service_healthy)
-            if curl -sf http://localhost/health > /dev/null; then
-              echo "✅ All APIs are ready!"
-              exit 0
-            fi
-            sleep 2
-          done
-          echo "❌ APIs failed to become ready in 60 seconds"
-          exit 1
+          echo "🔍 Checking Gateway..."
+          curl -sf http://localhost/health
+          
+          echo "🔍 Checking Auth Service..."
+          curl -sf http://localhost/api/auth/health
+          
+          echo "🔍 Checking Economy Service..."
+          curl -sf http://localhost/api/economy/health
+          
+          echo "🔍 Checking Crate Digger API..."
+          curl -sf http://localhost/api/crate/health
+          
+          echo "🔍 Checking ytb-audio-relay API..."
+          curl -sf http://localhost/api/relay/health
+          
+          echo "🔍 Checking ytb-audio-preview API..."
+          curl -sf http://localhost/api/preview/health
 
       - name: Debug on failure
         if: failure()
