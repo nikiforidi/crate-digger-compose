@@ -85,35 +85,43 @@ jobs:
 
       - name: Health Checks
         run: |
-          echo "🔍 Checking Gateway..."
-          curl -sf http://localhost/health
+          echo "🔍 Checking Gateway HTTP endpoint..."
+          curl -sf http://localhost/health && echo " ✅"
           
-          echo "🔍 Checking Auth Service..."
-          curl -sf http://localhost/api/auth/health
+          echo ""
+          echo "🔍 Checking all services status via docker compose..."
+          # Проверяем, что все ключевые сервисы имеют статус (healthy)
+          UNHEALTHY=$(docker compose --env-file .env.testing ps --format "{{.Name}} {{.Status}}" | \
+            grep -E "auth-service|crate-digger|economy-service|relay-api|preview-api|gateway|db|redis|minio" | \
+            grep -v "(healthy)" || true)
           
-          echo "🔍 Checking Economy Service..."
-          curl -sf http://localhost/api/economy/health
+          if [ -n "$UNHEALTHY" ]; then
+            echo "❌ Some services are not healthy:"
+            echo "$UNHEALTHY"
+            exit 1
+          fi
           
-          echo "🔍 Checking Crate Digger API..."
-          curl -sf http://localhost/api/crate/health
-          
-          echo "🔍 Checking ytb-audio-relay API..."
-          curl -sf http://localhost/api/relay/health
-          
-          echo "🔍 Checking ytb-audio-preview API..."
-          curl -sf http://localhost/api/preview/health
+          echo "✅ All services are healthy!"
+          docker compose --env-file .env.testing ps --format "table {{.Name}}\t{{.Status}}" | \
+            grep -E "auth-service|crate-digger|economy-service|relay-api|preview-api|gateway|db|redis|minio"
 
       - name: Debug on failure
         if: failure()
         run: |
           echo "📦 Container Status:"
-          docker compose ps -a
+          docker compose --env-file .env.testing ps -a
+          echo ""
           echo "📜 Auth Service Logs:"
-          docker compose logs auth-service --tail=50
+          docker compose --env-file .env.testing logs auth-service --tail=50
+          echo ""
           echo "📜 Economy Service Logs:"
-          docker compose logs economy-service --tail=50
-          echo "📜 Recent Logs:"
-          docker compose logs --tail=100
+          docker compose --env-file .env.testing logs economy-service --tail=50
+          echo ""
+          echo "📜 Gateway Logs:"
+          docker compose --env-file .env.testing logs gateway --tail=50
+          echo ""
+          echo "📜 Recent Logs (all services):"
+          docker compose --env-file .env.testing logs --tail=100
 
       - name: Cleanup
         if: always()
