@@ -7,6 +7,11 @@ on:
     branches: [main]
   workflow_dispatch:
 
+permissions:
+  contents: read
+  packages: write  # ← Критично для GHCR
+
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -37,7 +42,7 @@ jobs:
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
-          password: ${{ secrets.GHCR_PAT }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Prepare Telegram Session
         run: |
@@ -52,6 +57,9 @@ jobs:
 
       - name: Start stack
         run: |
+          # 🔑 КРИТИЧНО: Логинимся в GHCR ПЕРЕД docker compose
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+          
           # Базовые значения из .env.testing, секреты из env блока выше
           docker compose --env-file .env.testing up -d --pull always
 
@@ -64,6 +72,8 @@ jobs:
           docker compose --env-file .env.testing run --rm --no-deps crate-digger alembic upgrade head
           echo "→ economy-service"
           docker compose --env-file .env.testing run --rm --no-deps economy-service alembic upgrade head
+          echo "→ marketplace-service"  # 🔑 НОВОЕ
+          docker compose --env-file .env.testing run --rm --no-deps marketplace-service alembic upgrade head
           echo "✅ All migrations applied"
 
       - name: Wait for API readiness
@@ -87,25 +97,20 @@ jobs:
         run: |
           echo "🔍 Checking Gateway HTTP endpoint..."
           curl -sf http://localhost/health && echo " ✅"
-          
           echo ""
           echo "🔍 Checking all services status via docker compose..."
-          # Используем {{.Service}} вместо {{.Name}} — это имя сервиса, а не контейнера
-          # Паттерн матчит только нужные сервисы с включённым healthcheck
           UNHEALTHY=$(docker compose --env-file .env.testing ps --format "{{.Service}} {{.Status}}" | \
-            grep -E "^(auth-service|crate-digger|economy-service|relay-api|preview-api|gateway|db|redis|minio) " | \
+            grep -E "^(auth-service|crate-digger|economy-service|marketplace-service|relay-api|preview-api|gateway|db|redis|minio) " | \
             grep -v "(healthy)" || true)
-          
           if [ -n "$UNHEALTHY" ]; then
             echo "❌ Some services are not healthy:"
             echo "$UNHEALTHY"
             exit 1
           fi
-          
           echo "✅ All services are healthy!"
           docker compose --env-file .env.testing ps --format "table {{.Service}}\t{{.Status}}" | \
-            grep -E "^(auth-service|crate-digger|economy-service|relay-api|preview-api|gateway|db|redis|minio) "
-
+            grep -E "^(auth-service|crate-digger|economy-service|marketplace-service|relay-api|preview-api|gateway|db|redis|minio) "
+      
       - name: Debug on failure
         if: failure()
         run: |
@@ -118,11 +123,11 @@ jobs:
           echo "📜 Economy Service Logs:"
           docker compose --env-file .env.testing logs economy-service --tail=50
           echo ""
+          echo "📜 Marketplace Service Logs:"  # 🔑 НОВОЕ
+          docker compose --env-file .env.testing logs marketplace-service --tail=50
+          echo ""
           echo "📜 Gateway Logs:"
           docker compose --env-file .env.testing logs gateway --tail=50
-          echo ""
-          echo "📜 Recent Logs (all services):"
-          docker compose --env-file .env.testing logs --tail=100
 
       - name: Cleanup
         if: always()

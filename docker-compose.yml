@@ -7,10 +7,11 @@ services:
       - AUTH_SERVICE_URL=http://auth-service:8000
       - ECONOMY_SERVICE_URL=http://economy-service:8000
       - CRATE_SERVICE_URL=http://crate-digger:8000
+      - MARKETPLACE_SERVICE_URL=http://marketplace-service:800
       - RELAY_SERVICE_URL=http://relay-api:8000
       - PREVIEW_SERVICE_URL=http://preview-api:8000
       - JWT_SECRET_KEY=${JWT_SECRET_KEY}
-      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/3  # 🔑 Отдельная DB
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/3
       - HTTP_TIMEOUT=30.0
       - ENVIRONMENT=${ENVIRONMENT:-production}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
@@ -25,6 +26,7 @@ services:
       auth-service: { condition: service_healthy }
       economy-service: { condition: service_healthy }
       crate-digger: { condition: service_healthy }
+      marketplace-service: { condition: service_healthy }
       relay-api: { condition: service_healthy }
       preview-api: { condition: service_healthy }
       redis: { condition: service_healthy }
@@ -86,7 +88,6 @@ services:
   crate-digger:
     image: ghcr.io/nikiforidi/crate-digger:${CRATE_VERSION:-1.0.3}
     expose: ["8000"]
-    env_file: [.env.example]
     environment:
       - NODE_ENV=test
       - DATABASE_URL=postgresql+asyncpg://postgres:${DB_PASSWORD}@db:5432/crate_digger
@@ -242,6 +243,32 @@ services:
     restart: unless-stopped
     healthcheck:
       disable: true
+  
+  # === Service 5: marketplace-service ===
+  marketplace-service:
+    image: ghcr.io/nikiforidi/marketplace-service:${MARKETPLACE_VERSION:-latest}
+    expose: ["8003"]  # 🔑 Порт 8003 (в Dockerfile CMD --port 8003)
+    environment:
+      # 🔑 Sync SQLAlchemy (psycopg2), НЕ asyncpg!
+      - DATABASE_URL=postgresql://postgres:${DB_PASSWORD}@db:5432/marketplace_db
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/4  # Отдельная Redis DB
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY}
+      - CATALOG_SERVICE_URL=http://crate-digger:8000
+      - AUTH_SERVICE_URL=http://auth-service:8000
+    depends_on:
+      db: { condition: service_healthy }
+      db-init: { condition: service_completed_successfully }
+      redis: { condition: service_healthy }
+      crate-digger: { condition: service_healthy }
+      auth-service: { condition: service_healthy }
+    networks: [app-net]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8003/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
 
   # === Shared Infrastructure ===
   db:
@@ -270,6 +297,7 @@ services:
       sleep 3;
       PGPASSWORD=$${POSTGRES_PASSWORD} psql -h db -U postgres -c 'CREATE DATABASE auth_db;' 2>/dev/null;
       PGPASSWORD=$${POSTGRES_PASSWORD} psql -h db -U postgres -c 'CREATE DATABASE economy_db;' 2>/dev/null;
+      PGPASSWORD=$${POSTGRES_PASSWORD} psql -h db -U postgres -c 'CREATE DATABASE marketplace_db;' 2>/dev/null;
       exit 0
       "
     environment:
