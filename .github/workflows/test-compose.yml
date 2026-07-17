@@ -42,7 +42,7 @@ jobs:
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          password: ${{ secrets.GHCR_PAT }}
 
       - name: Prepare Telegram Session
         run: |
@@ -58,7 +58,7 @@ jobs:
       - name: Start stack
         run: |
           # 🔑 КРИТИЧНО: Логинимся в GHCR ПЕРЕД docker compose
-          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+          echo "${{ secrets.GHCR_PAT }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
           
           # Базовые значения из .env.testing, секреты из env блока выше
           docker compose --env-file .env.testing up -d --pull always
