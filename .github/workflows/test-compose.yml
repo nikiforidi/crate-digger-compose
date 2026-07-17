@@ -117,6 +117,9 @@ jobs:
           echo "📦 Container Status:"
           docker compose --env-file .env.testing ps -a
           echo ""
+          echo "📜 Crate Digger Logs (САМОЕ ВАЖНОЕ):"
+          docker compose --env-file .env.testing logs crate-digger --tail=50
+          echo ""
           echo "📜 Auth Service Logs:"
           docker compose --env-file .env.testing logs auth-service --tail=50
           echo ""
