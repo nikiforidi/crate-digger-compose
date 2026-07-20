@@ -57,26 +57,44 @@ jobs:
             exit 1
           fi
 
-      - name: Start stack
+      - name: Start Infrastructure Only (DB, Redis, MinIO)
         run: |
-          # 🔑 КРИТИЧНО: Логинимся в GHCR ПЕРЕД docker compose
-          echo "${{ secrets.GHCR_PAT }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+          echo "🚀 Starting infrastructure services..."
+          docker compose --env-file .env.testing up -d db redis minio createbuckets
           
-          # Базовые значения из .env.testing, секреты из env блока выше
-          docker compose --env-file .env.testing up -d --pull always
+          echo "⏳ Waiting for PostgreSQL to be ready..."
+          # Ждем, пока БД действительно сможет принимать подключения
+          for i in {1..15}; do
+            if docker compose --env-file .env.testing exec -T db pg_isready -U postgres > /dev/null 2>&1; then
+              echo "✅ PostgreSQL is ready!"
+              break
+            fi
+            sleep 2
+          done
 
       - name: Run database migrations (Alembic)
         run: |
-          echo "🗄️ Applying Alembic migrations..."
+          echo "🗄️ Applying Alembic migrations BEFORE starting app services..."
+          
           echo "→ auth-service"
           docker compose --env-file .env.testing run --rm --no-deps auth-service alembic upgrade head
+          
           echo "→ crate-digger"
           docker compose --env-file .env.testing run --rm --no-deps crate-digger alembic upgrade head
+          
           echo "→ economy-service"
           docker compose --env-file .env.testing run --rm --no-deps economy-service alembic upgrade head
-          echo "→ marketplace-service"  # 🔑 НОВОЕ
+          
+          echo "→ marketplace-service"
           docker compose --env-file .env.testing run --rm --no-deps marketplace-service alembic upgrade head
-          echo "✅ All migrations applied"
+          
+          echo "✅ All migrations applied successfully!"
+
+      - name: Start Application Services
+        run: |
+          echo "🚀 Starting application services (now that DB is ready)..."
+          # Теперь безопасно запускаем все сервисы, таблицы уже созданы
+          docker compose --env-file .env.testing up -d
 
       - name: Wait for API readiness
         run: |
