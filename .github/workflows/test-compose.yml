@@ -60,12 +60,23 @@ jobs:
       - name: Start Infrastructure Only (DB, Redis, MinIO)
         run: |
           echo "🚀 Starting infrastructure services..."
-          docker compose --env-file .env.testing up -d db redis minio createbuckets
+          # 🔑 КРИТИЧНО: Запускаем db-init для создания auth_db, economy_db, marketplace_db
+          docker compose --env-file .env.testing up -d db redis minio createbuckets db-init
           
           echo "⏳ Waiting for PostgreSQL to be ready..."
           for i in {1..15}; do
             if docker compose --env-file .env.testing exec -T db pg_isready -U postgres > /dev/null 2>&1; then
               echo "✅ PostgreSQL is ready!"
+              break
+            fi
+            sleep 2
+          done
+          
+          echo "⏳ Waiting for db-init to complete..."
+          # Ждем, пока db-init завершится (он создает дополнительные БД)
+          for i in {1..10}; do
+            if docker compose --env-file .env.testing ps db-init | grep -q "Exit 0"; then
+              echo "✅ db-init completed!"
               break
             fi
             sleep 2
