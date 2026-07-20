@@ -32,6 +32,8 @@ jobs:
       UNISENDER_LIST_ID: ${{ secrets.UNISENDER_LIST_ID }}
       YOOKASSA_SHOP_ID: ${{ secrets.YOOKASSA_SHOP_ID }}
       YOOKASSA_SECRET_KEY: ${{ secrets.YOOKASSA_SECRET_KEY }}
+      INITIAL_ADMIN_EMAIL: ${{ secrets.INITIAL_ADMIN_EMAIL }}
+      INTERNAL_SERVICE_TOKEN: ${{ secrets.INTERNAL_SERVICE_TOKEN }}
 
     steps:
       - name: Checkout

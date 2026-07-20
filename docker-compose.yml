@@ -7,7 +7,7 @@ services:
       - AUTH_SERVICE_URL=http://auth-service:8000
       - ECONOMY_SERVICE_URL=http://economy-service:8000
       - CRATE_SERVICE_URL=http://crate-digger:8000
-      - MARKETPLACE_SERVICE_URL=http://marketplace-service:800
+      - MARKETPLACE_SERVICE_URL=http://marketplace-service:8003
       - RELAY_SERVICE_URL=http://relay-api:8000
       - PREVIEW_SERVICE_URL=http://preview-api:8000
       - JWT_SECRET_KEY=${JWT_SECRET_KEY}
@@ -71,6 +71,7 @@ services:
       - UNISENDER_LIST_ID=${UNISENDER_LIST_ID}
       - FRONTEND_URL=${FRONTEND_URL:-http://localhost}
       - EMAIL_BACKEND=${EMAIL_BACKEND:-unisender}
+      - INITIAL_ADMIN_EMAIL=${INITIAL_ADMIN_EMAIL:-}
     depends_on:
       db: { condition: service_healthy }
       db-init: { condition: service_completed_successfully }
@@ -90,7 +91,7 @@ services:
     expose: ["8000"]
     environment:
       - NODE_ENV=test
-      - DATABASE_URL=postgresql+psycopg2://postgres:postgres@localhost:5432/crate_digger_test
+      - DATABASE_URL=postgresql+psycopg2://postgres:${DB_PASSWORD}@db:5432/crate_digger
       - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
       - S3_ENDPOINT_URL=${S3_ENDPOINT_URL}
       - S3_ACCESS_KEY=${S3_ACCESS_KEY}
@@ -99,6 +100,7 @@ services:
       - DISCOGS_TOKEN=${DISCOGS_TOKEN}
     depends_on:
       db: { condition: service_healthy }
+      db-init: { condition: service_completed_successfully }
       redis: { condition: service_healthy }
       minio: { condition: service_healthy }
     networks: [app-net]
@@ -125,6 +127,9 @@ services:
       - CATALOG_SERVICE_URL=http://crate-digger:8000
       - AUTH_SERVICE_URL=http://auth-service:8000
       - JWT_SECRET_KEY=${JWT_SECRET_KEY}
+      # 🔑 ФАЗА 3: Взаимодействие с marketplace-service
+      - MARKETPLACE_SERVICE_URL=http://marketplace-service:8003
+      - INTERNAL_SERVICE_TOKEN=${INTERNAL_SERVICE_TOKEN:-super_secret_internal_token_change_in_prod}
     depends_on:
       db: { condition: service_healthy }
       db-init: { condition: service_completed_successfully }
@@ -196,7 +201,7 @@ services:
     healthcheck:
       disable: true
 
-  # === Service 4: ytb-audio-preview ===
+  # === Service 4: ytb-audio-preview (audio-processing) ===
   preview-api:
     image: ghcr.io/nikiforidi/ytb-audio-preview:${PREVIEW_VERSION:-v0.1.2}
     expose: ["8000"]
@@ -208,11 +213,13 @@ services:
       - MINIO_PUBLIC_URL=${MINIO_PUBLIC_URL:-http://localhost:9000}
       - SOURCE_BUCKET=${S3_BUCKET_NAME}
       - PREVIEW_BUCKET=ytb-audio-previews
+      - LISTING_BUCKET=listing-audio  # 🔑 ФАЗА 4: MP3 для свободных листингов
       - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
       - REDIS_EVENT_CHANNEL=preview:trigger
     depends_on:
       redis: { condition: service_healthy }
       minio: { condition: service_healthy }
+      createbuckets: { condition: service_completed_successfully }
     networks: [app-net]
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
@@ -233,32 +240,45 @@ services:
       - MINIO_PUBLIC_URL=${MINIO_PUBLIC_URL:-http://localhost:9000}
       - SOURCE_BUCKET=${S3_BUCKET_NAME}
       - PREVIEW_BUCKET=ytb-audio-previews
+      - LISTING_BUCKET=listing-audio  # 🔑 ФАЗА 4: MP3 для свободных листингов
       - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
       - REDIS_EVENT_CHANNEL=preview:trigger
     depends_on:
       redis: { condition: service_healthy }
       minio: { condition: service_healthy }
+      createbuckets: { condition: service_completed_successfully }
     networks: [app-net]
     command: python -m arq worker.WorkerSettings
     restart: unless-stopped
     healthcheck:
       disable: true
-  
+
   # === Service 5: marketplace-service ===
   marketplace-service:
     image: ghcr.io/nikiforidi/marketplace-service:${MARKETPLACE_VERSION:-latest}
-    expose: ["8003"]  # 🔑 Порт 8003 (в Dockerfile CMD --port 8003)
+    expose: ["8003"]
     environment:
-      # 🔑 Sync SQLAlchemy (psycopg2), НЕ asyncpg!
+      # Sync SQLAlchemy (psycopg2)
       - DATABASE_URL=postgresql://postgres:${DB_PASSWORD}@db:5432/marketplace_db
-      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/4  # Отдельная Redis DB
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/4
       - JWT_SECRET_KEY=${JWT_SECRET_KEY}
       - CATALOG_SERVICE_URL=http://crate-digger:8000
       - AUTH_SERVICE_URL=http://auth-service:8000
+      # 🔑 ФАЗА 2: MinIO для обложек листингов
+      - MINIO_ENDPOINT=minio:9000
+      - MINIO_ACCESS_KEY=${S3_ACCESS_KEY}
+      - MINIO_SECRET_KEY=${S3_SECRET_KEY}
+      - MINIO_SECURE=false
+      - MINIO_PUBLIC_URL=${MINIO_PUBLIC_URL:-http://localhost:9000}
+      - LISTINGS_BUCKET=marketplace-listings
+      # 🔑 ФАЗА 2: Внутренний токен для economy-service
+      - INTERNAL_SERVICE_TOKEN=${INTERNAL_SERVICE_TOKEN:-super_secret_internal_token_change_in_prod}
     depends_on:
       db: { condition: service_healthy }
       db-init: { condition: service_completed_successfully }
       redis: { condition: service_healthy }
+      minio: { condition: service_healthy }
+      createbuckets: { condition: service_completed_successfully }
       crate-digger: { condition: service_healthy }
       auth-service: { condition: service_healthy }
     networks: [app-net]
@@ -287,7 +307,7 @@ services:
       start_period: 30s
     restart: unless-stopped
 
-  # 🔑 Создаёт дополнительные БД для auth и economy сервисов
+  # 🔑 Создаёт дополнительные БД для auth, economy и marketplace сервисов
   db-init:
     image: postgres:15-alpine
     depends_on:
@@ -298,6 +318,7 @@ services:
       PGPASSWORD=$${POSTGRES_PASSWORD} psql -h db -U postgres -c 'CREATE DATABASE auth_db;' 2>/dev/null;
       PGPASSWORD=$${POSTGRES_PASSWORD} psql -h db -U postgres -c 'CREATE DATABASE economy_db;' 2>/dev/null;
       PGPASSWORD=$${POSTGRES_PASSWORD} psql -h db -U postgres -c 'CREATE DATABASE marketplace_db;' 2>/dev/null;
+      PGPASSWORD=$${POSTGRES_PASSWORD} psql -h db -U postgres -c 'CREATE DATABASE crate_digger;' 2>/dev/null;
       exit 0
       "
     environment:
@@ -335,6 +356,7 @@ services:
       start_period: 10s
     restart: unless-stopped
 
+  # 🔑 ФАЗЫ 2 + 4: Создание всех бакетов при старте
   createbuckets:
     image: minio/mc:latest
     restart: "no"
@@ -345,8 +367,12 @@ services:
       /usr/bin/mc alias set myminio http://minio:9000 ${S3_ACCESS_KEY} ${S3_SECRET_KEY} &&
       /usr/bin/mc mb --ignore-existing myminio/${S3_BUCKET_NAME} &&
       /usr/bin/mc mb --ignore-existing myminio/ytb-audio-previews &&
+      /usr/bin/mc mb --ignore-existing myminio/marketplace-listings &&
+      /usr/bin/mc mb --ignore-existing myminio/listing-audio &&
       /usr/bin/mc anonymous set public myminio/${S3_BUCKET_NAME} &&
-      /usr/bin/mc anonymous set public myminio/ytb-audio-previews;
+      /usr/bin/mc anonymous set public myminio/ytb-audio-previews &&
+      /usr/bin/mc anonymous set public myminio/marketplace-listings &&
+      /usr/bin/mc anonymous set public myminio/listing-audio;
       exit 0
       "
     networks: [app-net]
