@@ -76,17 +76,22 @@ jobs:
         run: |
           echo "🗄️ Applying Alembic migrations BEFORE starting app services..."
           
+          # 🔑 КРИТИЧНО: Загружаем переменные из .env.testing в текущее окружение
+          set -a
+          source .env.testing
+          set +a
+          
           echo "→ auth-service"
-          docker compose --env-file .env.testing run --rm --no-deps auth-service alembic upgrade head
+          docker compose run --rm --no-deps auth-service alembic upgrade head
           
           echo "→ crate-digger"
-          docker compose --env-file .env.testing run --rm --no-deps crate-digger alembic upgrade head
+          docker compose run --rm --no-deps crate-digger alembic upgrade head
           
           echo "→ economy-service"
-          docker compose --env-file .env.testing run --rm --no-deps economy-service alembic upgrade head
+          docker compose run --rm --no-deps economy-service alembic upgrade head
           
           echo "→ marketplace-service"
-          docker compose --env-file .env.testing run --rm --no-deps marketplace-service alembic upgrade head
+          docker compose run --rm --no-deps marketplace-service alembic upgrade head
           
           echo "✅ All migrations applied successfully!"
 
