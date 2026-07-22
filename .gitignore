@@ -3,3 +3,4 @@
 .env.local
 !.env.example
 .DS_Store
+sessions/ytb_session.session
