@@ -4,3 +4,5 @@
 !.env.example
 .DS_Store
 sessions/ytb_session.session
+.npm_token
+.npm_token

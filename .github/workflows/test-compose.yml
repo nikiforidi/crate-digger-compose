@@ -31,7 +31,6 @@ jobs:
       INITIAL_ADMIN_EMAIL: ${{ secrets.INITIAL_ADMIN_EMAIL }}
       INTERNAL_SERVICE_TOKEN: ${{ secrets.INTERNAL_SERVICE_TOKEN }}
       # 🔑 НОВОЕ: Переменные для фронтенда в тестовом окружении
-      NEXT_PUBLIC_GATEWAY_URL: http://localhost
       NEXT_PUBLIC_API_URL: http://localhost
 
     steps:
