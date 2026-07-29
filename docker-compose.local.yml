@@ -273,6 +273,23 @@ services:
       start_period: 30s
     restart: unless-stopped
   
+  reviews-migrate:
+    build:
+      context: ../review-service
+      dockerfile: Dockerfile
+    command: alembic upgrade head
+    environment:
+      - DATABASE_URL=postgresql://postgres:${DB_PASSWORD:-postgres}@db:5432/review_service
+      - REDIS_URL=redis://:${REDIS_PASSWORD:-redis}@redis:6379/0
+      - ENVIRONMENT=development
+      - LOG_LEVEL=DEBUG
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-dev_secret}
+    depends_on:
+      db: { condition: service_healthy }
+      db-init: { condition: service_completed_successfully }
+    networks: [app-net]
+    restart: "no"
+  
   # ==========================================
   # === Service 7: review-service ===
   # ==========================================
@@ -294,6 +311,7 @@ services:
       db: { condition: service_healthy }
       db-init: { condition: service_completed_successfully }
       redis: { condition: service_healthy }
+      reviews-migrate: { condition: service_completed_successfully }
     networks:
       - app-net
     healthcheck:
