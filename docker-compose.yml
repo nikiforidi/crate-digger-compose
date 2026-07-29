@@ -1,23 +1,26 @@
 services:
+  # ==========================================
   # === API Gateway ===
+  # ==========================================
   gateway:
     image: ghcr.io/nikiforidi/api-gateway:${GATEWAY_VERSION:-latest}
     platform: linux/amd64
-    expose: ["8000"]
+    expose:
+      - "8000"
     environment:
       - AUTH_SERVICE_URL=http://auth-service:8000
-      - ECONOMY_SERVICE_URL=http://conomy-service:8000
+      - ECONOMY_SERVICE_URL=http://economy-service:8000
       - CRATE_SERVICE_URL=http://crate-digger:8000
       - MARKETPLACE_SERVICE_URL=http://marketplace-service:8003
       - RELAY_SERVICE_URL=http://relay-api:8000
       - PREVIEW_SERVICE_URL=http://preview-api:8000
+      - REVIEW_SERVICE_URL=http://review-service:8000 # 🔑 НОВОЕ: URL для review-service
       - JWT_SECRET_KEY=${JWT_SECRET_KEY}
       - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/3
-      - HTTP_TIMEOUT=30.0
       - ENVIRONMENT=${ENVIRONMENT:-production}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
-      - RATE_LIMIT_DEFAULT=100/minute
-      - RATE_LIMIT_AUTH=10/minute
+      - RATE_LIMIT_DEFAULT=1000/minute
+      - RATE_LIMIT_AUTH=100/minute
       - CIRCUIT_BREAKER_FAIL_MAX=5
       - CIRCUIT_BREAKER_RESET_TIMEOUT=60
       - CACHE_TTL_RELEASES=3600
@@ -30,17 +33,20 @@ services:
       marketplace-service: { condition: service_healthy }
       relay-api: { condition: service_healthy }
       preview-api: { condition: service_healthy }
+      review-service: { condition: service_healthy } # 🔑 НОВОЕ: зависимость от review-service
       redis: { condition: service_healthy }
-    networks: [app-net]
+    networks:
+      - app-net
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 30s
     restart: unless-stopped
 
+  # ==========================================
   # === Service 6: marketplace-frontend ===
+  # ==========================================
   marketplace-frontend:
     image: ghcr.io/nikiforidi/marketplace-frontend:${FRONTEND_VERSION:-latest}
     platform: linux/amd64
@@ -51,35 +57,75 @@ services:
       - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost}
     depends_on:
       gateway: { condition: service_healthy }
-    networks: [app-net]
+    networks:
+      - app-net
     restart: unless-stopped
 
+  # ==========================================
+  # === Service 7: review-service 🔑 НОВОЕ ===
+  # ==========================================
+  review-service:
+    image: ghcr.io/nikiforidi/crate-reviews:latest
+    platform: linux/amd64
+    expose:
+      - "8000"
+    environment:
+      - DATABASE_URL=postgresql://postgres:${DB_PASSWORD}@db:5432/review_service
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
+      - ENVIRONMENT=${ENVIRONMENT:-production}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY}
+    depends_on:
+      db: { condition: service_healthy }
+      db-init: { condition: service_completed_successfully }
+      redis: { condition: service_healthy }
+    networks:
+      - app-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # ==========================================
   # === Prometheus ===
+  # ==========================================
   prometheus:
     image: prom/prometheus:latest
-    ports: ["9090:9090"]
+    ports:
+      - "9090:9090"
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus-data:/prometheus
-    networks: [app-net]
+    networks:
+      - app-net
     restart: unless-stopped
 
+  # ==========================================
   # === Nginx ===
+  # ==========================================
   nginx:
     image: nginx:alpine
-    ports: ["${GATEWAY_PORT:-80}:80"]
-    volumes: ["./nginx.conf:/etc/nginx/nginx.conf:ro"]
+    ports:
+      - "${GATEWAY_PORT:-80}:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
     depends_on:
       gateway: { condition: service_healthy }
       marketplace-frontend: { condition: service_started }
-    networks: [app-net]
+    networks:
+      - app-net
     restart: unless-stopped
 
+  # ==========================================
   # === Service 0: auth-service ===
+  # ==========================================
   auth-service:
     image: ghcr.io/nikiforidi/auth-service:${AUTH_VERSION:-latest}
     platform: linux/amd64
-    expose: ["8000"]
+    expose:
+      - "8000"
     environment:
       - DATABASE_URL=postgresql+asyncpg://postgres:${DB_PASSWORD}@db:5432/auth_db
       - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/1
@@ -93,20 +139,23 @@ services:
       db: { condition: service_healthy }
       db-init: { condition: service_completed_successfully }
       redis: { condition: service_healthy }
-    networks: [app-net]
+    networks:
+      - app-net
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 30s
     restart: unless-stopped
 
+  # ==========================================
   # === Service 1: crate-digger ===
+  # ==========================================
   crate-digger:
-    image: ghcr.io/nikiforidi/crate-digger:${CRATE_VERSION:-1.0.3}
+    image: ghcr.io/nikiforidi/crate-digger:${CRATE_VERSION:-latest}
     platform: linux/amd64
-    expose: ["8000"]
+    expose:
+      - "8000"
     environment:
       - NODE_ENV=test
       - DATABASE_URL=postgresql+psycopg2://postgres:${DB_PASSWORD}@db:5432/crate_digger
@@ -121,20 +170,23 @@ services:
       db-init: { condition: service_completed_successfully }
       redis: { condition: service_healthy }
       minio: { condition: service_healthy }
-    networks: [app-net]
+    networks:
+      - app-net
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 40s
     restart: unless-stopped
 
+  # ==========================================
   # === Service 2: economy-service ===
+  # ==========================================
   economy-service:
     image: ghcr.io/nikiforidi/economy-service:${ECONOMY_VERSION:-latest}
     platform: linux/amd64
-    expose: ["8000"]
+    expose:
+      - "8000"
     environment:
       - DATABASE_URL=postgresql+asyncpg://postgres:${DB_PASSWORD}@db:5432/economy_db
       - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/2
@@ -154,20 +206,23 @@ services:
       redis: { condition: service_healthy }
       crate-digger: { condition: service_healthy }
       auth-service: { condition: service_healthy }
-    networks: [app-net]
+    networks:
+      - app-net
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 30s
     restart: unless-stopped
 
+  # ==========================================
   # === Service 3: ytb-audio-relay ===
+  # ==========================================
   relay-api:
     image: ghcr.io/nikiforidi/ytb-audio-relay:${RELAY_VERSION:-latest}
     platform: linux/amd64
-    expose: ["8000"]
+    expose:
+      - "8000"
     environment:
       - API_ID=${API_ID:-123456}
       - API_HASH=${API_HASH:-dummy}
@@ -185,19 +240,17 @@ services:
     depends_on:
       redis: { condition: service_healthy }
       minio: { condition: service_healthy }
-    networks: [app-net]
+    networks:
+      - app-net
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 20s
-    command: uvicorn main:app --host 0.0.0.0 --port 8000
     restart: unless-stopped
 
   relay-worker:
     image: ghcr.io/nikiforidi/ytb-audio-relay:${RELAY_VERSION:-latest}
-
     platform: linux/amd64
     environment:
       - API_ID=${API_ID:-123456}
@@ -216,17 +269,21 @@ services:
     depends_on:
       redis: { condition: service_healthy }
       minio: { condition: service_healthy }
-    networks: [app-net]
+    networks:
+      - app-net
     command: python -m arq worker.WorkerSettings
     restart: unless-stopped
     healthcheck:
       disable: true
 
+  # ==========================================
   # === Service 4: ytb-audio-preview ===
+  # ==========================================
   preview-api:
-    image: ghcr.io/nikiforidi/ytb-audio-preview:${PREVIEW_VERSION:-v0.1.2}
+    image: ghcr.io/nikiforidi/ytb-audio-preview:${PREVIEW_VERSION:-latest}
     platform: linux/amd64
-    expose: ["8000"]
+    expose:
+      - "8000"
     environment:
       - MINIO_ENDPOINT=minio:9000
       - MINIO_ACCESS_KEY=${S3_ACCESS_KEY}
@@ -242,18 +299,17 @@ services:
       redis: { condition: service_healthy }
       minio: { condition: service_healthy }
       createbuckets: { condition: service_completed_successfully }
-    networks: [app-net]
+    networks:
+      - app-net
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 20s
-    command: uvicorn main:app --host 0.0.0.0 --port 8000
     restart: unless-stopped
 
   preview-worker:
-    image: ghcr.io/nikiforidi/ytb-audio-preview:${PREVIEW_VERSION:-v0.1.2}
+    image: ghcr.io/nikiforidi/ytb-audio-preview:${PREVIEW_VERSION:-latest}
     platform: linux/amd64
     environment:
       - MINIO_ENDPOINT=minio:9000
@@ -270,17 +326,21 @@ services:
       redis: { condition: service_healthy }
       minio: { condition: service_healthy }
       createbuckets: { condition: service_completed_successfully }
-    networks: [app-net]
+    networks:
+      - app-net
     command: python -m arq worker.WorkerSettings
     restart: unless-stopped
     healthcheck:
       disable: true
 
+  # ==========================================
   # === Service 5: marketplace-service ===
+  # ==========================================
   marketplace-service:
     image: ghcr.io/nikiforidi/marketplace-service:${MARKETPLACE_VERSION:-latest}
     platform: linux/amd64
-    expose: ["8003"]
+    expose:
+      - "8003"
     environment:
       - DATABASE_URL=postgresql://postgres:${DB_PASSWORD}@db:5432/marketplace_db
       - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/4
@@ -302,16 +362,18 @@ services:
       createbuckets: { condition: service_completed_successfully }
       crate-digger: { condition: service_healthy }
       auth-service: { condition: service_healthy }
-    networks: [app-net]
+    networks:
+      - app-net
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8003/health"]
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 30s
     restart: unless-stopped
 
+  # ==========================================
   # === Shared Infrastructure ===
+  # ==========================================
   db:
     image: postgres:15-alpine
     environment:
@@ -319,13 +381,13 @@ services:
       POSTGRES_DB: crate_digger
     volumes:
       - postgres-data:/var/lib/postgresql/data
-    networks: [app-net]
+    networks:
+      - app-net
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d crate_digger"]
       interval: 5s
       timeout: 3s
       retries: 5
-      start_period: 30s
     restart: unless-stopped
 
   db-init:
@@ -339,11 +401,13 @@ services:
       PGPASSWORD=$${POSTGRES_PASSWORD} psql -h db -U postgres -c 'CREATE DATABASE economy_db;' 2>/dev/null;
       PGPASSWORD=$${POSTGRES_PASSWORD} psql -h db -U postgres -c 'CREATE DATABASE marketplace_db;' 2>/dev/null;
       PGPASSWORD=$${POSTGRES_PASSWORD} psql -h db -U postgres -c 'CREATE DATABASE crate_digger;' 2>/dev/null;
+      PGPASSWORD=$${POSTGRES_PASSWORD} psql -h db -U postgres -c 'CREATE DATABASE review_service;' 2>/dev/null;
       exit 0
       "
     environment:
       POSTGRES_PASSWORD: ${DB_PASSWORD}
-    networks: [app-net]
+    networks:
+      - app-net
     restart: "no"
 
   redis:
@@ -351,7 +415,8 @@ services:
     command: redis-server --requirepass ${REDIS_PASSWORD} --appendonly yes --maxmemory 256mb
     volumes:
       - redis-data:/data
-    networks: [app-net]
+    networks:
+      - app-net
     healthcheck:
       test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
       interval: 5s
@@ -367,13 +432,13 @@ services:
       MINIO_ROOT_PASSWORD: ${S3_SECRET_KEY}
     volumes:
       - minio-data:/data
-    networks: [app-net]
+    networks:
+      - app-net
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
       interval: 10s
       timeout: 5s
       retries: 3
-      start_period: 10s
     restart: unless-stopped
 
   createbuckets:
@@ -386,15 +451,16 @@ services:
       /usr/bin/mc alias set myminio http://minio:9000 ${S3_ACCESS_KEY} ${S3_SECRET_KEY} &&
       /usr/bin/mc mb --ignore-existing myminio/${S3_BUCKET_NAME} &&
       /usr/bin/mc mb --ignore-existing myminio/ytb-audio-previews &&
-      /usr/bin/mc mb --ignore-existing myminio/marketplace-listings &&
       /usr/bin/mc mb --ignore-existing myminio/listing-audio &&
+      /usr/bin/mc mb --ignore-existing myminio/marketplace-listings &&
       /usr/bin/mc anonymous set public myminio/${S3_BUCKET_NAME} &&
       /usr/bin/mc anonymous set public myminio/ytb-audio-previews &&
-      /usr/bin/mc anonymous set public myminio/marketplace-listings &&
-      /usr/bin/mc anonymous set public myminio/listing-audio;
+      /usr/bin/mc anonymous set public myminio/listing-audio &&
+      /usr/bin/mc anonymous set public myminio/marketplace-listings;
       exit 0
       "
-    networks: [app-net]
+    networks:
+      - app-net
 
 volumes:
   postgres-data:
