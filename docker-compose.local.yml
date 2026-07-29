@@ -280,14 +280,10 @@ services:
     build:
       context: ../review-service
       dockerfile: Dockerfile
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
     volumes:
       - ./review-service:/workspace
-    working_dir: /workspace
     expose:
       - "8000"
-    ports:
-      - "8004:8000"
     environment:
       - DATABASE_URL=postgresql://postgres:${DB_PASSWORD:-postgres}@db:5432/review_service
       - REDIS_URL=redis://:${REDIS_PASSWORD:-redis}@redis:6379/0
