@@ -81,6 +81,7 @@ services:
       - FRONTEND_URL=${FRONTEND_URL:-http://localhost}
       - EMAIL_BACKEND=${EMAIL_BACKEND:-unisender}
       - INITIAL_ADMIN_EMAIL=${INITIAL_ADMIN_EMAIL:-}
+      - LOG_LEVEL=DEBUG
       # - INITIAL_ADMIN_PASSWORD=${INITIAL_ADMIN_PASSWORD:-}
     depends_on:
       db: { condition: service_healthy }
@@ -127,6 +128,7 @@ services:
       - S3_BUCKET_NAME=${S3_BUCKET_NAME}
       - S3_ACCESS_KEY=${S3_ACCESS_KEY}
       - S3_SECRET_KEY=${S3_SECRET_KEY}
+      - MINIO_PUBLIC_URL=${MINIO_PUBLIC_URL:-http://localhost:9000}   # 🔑 ДОБАВЛЕНО
     depends_on:
       db: { condition: service_healthy }
       db-init: { condition: service_completed_successfully }
@@ -150,6 +152,10 @@ services:
       - S3_SECRET_KEY=${S3_SECRET_KEY}
       - S3_BUCKET_NAME=${S3_BUCKET_NAME}
       - DISCOGS_TOKEN=${DISCOGS_TOKEN}
+      # 🔑 ДОБАВЛЕНО: публичный URL для MinIO (доступен из браузера)
+      - MINIO_PUBLIC_URL=${MINIO_PUBLIC_URL:-http://localhost:9000}
+      # 🔑 ДОБАВЛЕНО: Audio Pipeline (если используется)
+      - RELAY_SERVICE_URL=http://relay-api:8000
     depends_on:
       db: { condition: service_healthy }
       db-init: { condition: service_completed_successfully }
@@ -389,7 +395,7 @@ services:
   # ============================================
   preview-api:
     build:
-      context: ../audio-processing
+      context: ../ytb-audio-preview
       dockerfile: Dockerfile
     expose: ["8000"]
     environment:
@@ -419,7 +425,7 @@ services:
 
   preview-worker:
     build:
-      context: ../audio-processing
+      context: ../ytb-audio-preview
       dockerfile: Dockerfile
     environment:
       - MINIO_ENDPOINT=minio:9000
