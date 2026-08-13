@@ -52,8 +52,8 @@ services:
     build:
       context: ../marketplace-frontend
       dockerfile: Dockerfile
-      secrets:
-        - NPM_TOKEN
+    secrets:
+      - NPM_TOKEN
     ports:
       - "${FRONTEND_PORT:-3000}:3000"
     environment:
@@ -82,11 +82,10 @@ services:
       - EMAIL_BACKEND=${EMAIL_BACKEND:-unisender}
       - INITIAL_ADMIN_EMAIL=${INITIAL_ADMIN_EMAIL:-}
       - LOG_LEVEL=DEBUG
-      # - INITIAL_ADMIN_PASSWORD=${INITIAL_ADMIN_PASSWORD:-}
     depends_on:
       db: { condition: service_healthy }
       db-init: { condition: service_completed_successfully }
-      auth-migrate: { condition: service_completed_successfully }  # 🆕
+      auth-migrate: { condition: service_completed_successfully }
       redis: { condition: service_healthy }
     networks: [app-net]
     healthcheck:
@@ -97,9 +96,6 @@ services:
       start_period: 30s
     restart: unless-stopped
 
-  # ============================================
-  # Auth Service Migrations
-  # ============================================
   auth-migrate:
     build:
       context: ../auth-service
@@ -114,7 +110,7 @@ services:
     restart: "no"
 
   # ============================================
-  # Crate Digger Migrations
+  # Crate Digger
   # ============================================
   crate-digger-migrate:
     build:
@@ -128,16 +124,12 @@ services:
       - S3_BUCKET_NAME=${S3_BUCKET_NAME}
       - S3_ACCESS_KEY=${S3_ACCESS_KEY}
       - S3_SECRET_KEY=${S3_SECRET_KEY}
-      - MINIO_PUBLIC_URL=${MINIO_PUBLIC_URL:-http://localhost:9000}   # 🔑 ДОБАВЛЕНО
     depends_on:
       db: { condition: service_healthy }
       db-init: { condition: service_completed_successfully }
     networks: [app-net]
     restart: "no"
 
-  # ============================================
-  # Crate Digger
-  # ============================================
   crate-digger:
     build:
       context: ../crate-digger
@@ -152,14 +144,13 @@ services:
       - S3_SECRET_KEY=${S3_SECRET_KEY}
       - S3_BUCKET_NAME=${S3_BUCKET_NAME}
       - DISCOGS_TOKEN=${DISCOGS_TOKEN}
-      # 🔑 ДОБАВЛЕНО: публичный URL для MinIO (доступен из браузера)
-      - MINIO_PUBLIC_URL=${MINIO_PUBLIC_URL:-http://localhost:9000}
-      # 🔑 ДОБАВЛЕНО: Audio Pipeline (если используется)
-      - RELAY_SERVICE_URL=http://relay-api:8000
+      # 🔑 КЛЮЧЕВОЕ: обложки генерируются с хостом minio —
+      # Next-сервер достаёт их сервером изнутри app-net
+      - MINIO_PUBLIC_URL=http://minio:9000
     depends_on:
       db: { condition: service_healthy }
       db-init: { condition: service_completed_successfully }
-      crate-digger-migrate: { condition: service_completed_successfully }  # 🔓 РАСКОММЕНТИРОВАНО
+      crate-digger-migrate: { condition: service_completed_successfully }
       redis: { condition: service_healthy }
       minio: { condition: service_healthy }
     networks: [app-net]
@@ -172,7 +163,7 @@ services:
     restart: unless-stopped
 
   # ============================================
-  # Economy Service Migrations
+  # Economy Service
   # ============================================
   economy-migrate:
     build:
@@ -187,9 +178,6 @@ services:
     networks: [app-net]
     restart: "no"
 
-  # ============================================
-  # Economy Service
-  # ============================================
   economy-service:
     build:
       context: ../economy-service
@@ -211,7 +199,7 @@ services:
     depends_on:
       db: { condition: service_healthy }
       db-init: { condition: service_completed_successfully }
-      economy-migrate: { condition: service_completed_successfully }  # 🆕
+      economy-migrate: { condition: service_completed_successfully }
       redis: { condition: service_healthy }
       crate-digger: { condition: service_healthy }
       auth-service: { condition: service_healthy }
@@ -225,7 +213,7 @@ services:
     restart: unless-stopped
 
   # ============================================
-  # Marketplace Service Migrations
+  # Marketplace Service
   # ============================================
   marketplace-migrate:
     build:
@@ -240,9 +228,6 @@ services:
     networks: [app-net]
     restart: "no"
 
-  # ============================================
-  # Marketplace Service
-  # ============================================
   marketplace-service:
     build:
       context: ../marketplace-service
@@ -258,13 +243,14 @@ services:
       - MINIO_ACCESS_KEY=${S3_ACCESS_KEY}
       - MINIO_SECRET_KEY=${S3_SECRET_KEY}
       - MINIO_SECURE=false
-      - MINIO_PUBLIC_URL=${MINIO_PUBLIC_URL:-http://localhost:9000}
+      # 🔑 КЛЮЧЕВОЕ: было http://localhost:9000 — Next-сервер не мог достучаться
+      - MINIO_PUBLIC_URL=http://minio:9000
       - LISTINGS_BUCKET=marketplace-listings
       - INTERNAL_SERVICE_TOKEN=${INTERNAL_SERVICE_TOKEN:-super_secret_internal_token_change_in_prod}
     depends_on:
       db: { condition: service_healthy }
       db-init: { condition: service_completed_successfully }
-      marketplace-migrate: { condition: service_completed_successfully }  # 🆕
+      marketplace-migrate: { condition: service_completed_successfully }
       redis: { condition: service_healthy }
       minio: { condition: service_healthy }
       createbuckets: { condition: service_completed_successfully }
@@ -278,7 +264,10 @@ services:
       retries: 5
       start_period: 30s
     restart: unless-stopped
-  
+
+  # ============================================
+  # Review Service
+  # ============================================
   reviews-migrate:
     build:
       context: ../review-service
@@ -295,18 +284,14 @@ services:
       db-init: { condition: service_completed_successfully }
     networks: [app-net]
     restart: "no"
-  
-  # ==========================================
-  # === Service 7: review-service ===
-  # ==========================================
+
   review-service:
     build:
       context: ../review-service
       dockerfile: Dockerfile
     volumes:
       - ./review-service:/workspace
-    expose:
-      - "8000"
+    expose: ["8000"]
     environment:
       - DATABASE_URL=postgresql://postgres:${DB_PASSWORD:-postgres}@db:5432/review_service
       - REDIS_URL=redis://:${REDIS_PASSWORD:-redis}@redis:6379/0
@@ -318,8 +303,7 @@ services:
       db-init: { condition: service_completed_successfully }
       redis: { condition: service_healthy }
       reviews-migrate: { condition: service_completed_successfully }
-    networks:
-      - app-net
+    networks: [app-net]
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 10s
@@ -345,7 +329,8 @@ services:
       - MINIO_ACCESS_KEY=${S3_ACCESS_KEY}
       - MINIO_SECRET_KEY=${S3_SECRET_KEY}
       - MINIO_SECURE=false
-      - MINIO_PUBLIC_URL=${MINIO_PUBLIC_URL:-http://localhost:9000}
+      # 🔑 Аудио-URL браузер грузит напрямую через nginx → относительный /minio
+      - MINIO_PUBLIC_URL=/minio
       - MINIO_BUCKET=${S3_BUCKET_NAME}
       - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
     volumes:
@@ -376,7 +361,7 @@ services:
       - MINIO_ACCESS_KEY=${S3_ACCESS_KEY}
       - MINIO_SECRET_KEY=${S3_SECRET_KEY}
       - MINIO_SECURE=false
-      - MINIO_PUBLIC_URL=${MINIO_PUBLIC_URL:-http://localhost:9000}
+      - MINIO_PUBLIC_URL=/minio
       - MINIO_BUCKET=${S3_BUCKET_NAME}
       - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
     volumes:
@@ -403,7 +388,8 @@ services:
       - MINIO_ACCESS_KEY=${S3_ACCESS_KEY}
       - MINIO_SECRET_KEY=${S3_SECRET_KEY}
       - MINIO_SECURE=false
-      - MINIO_PUBLIC_URL=${MINIO_PUBLIC_URL:-http://localhost:9000}
+      # 🔑 preview_url уходит в <audio src> браузера → через nginx
+      - MINIO_PUBLIC_URL=/minio
       - SOURCE_BUCKET=${S3_BUCKET_NAME}
       - PREVIEW_BUCKET=ytb-audio-previews
       - LISTING_BUCKET=listing-audio
@@ -432,7 +418,7 @@ services:
       - MINIO_ACCESS_KEY=${S3_ACCESS_KEY}
       - MINIO_SECRET_KEY=${S3_SECRET_KEY}
       - MINIO_SECURE=false
-      - MINIO_PUBLIC_URL=${MINIO_PUBLIC_URL:-http://localhost:9000}
+      - MINIO_PUBLIC_URL=/minio
       - SOURCE_BUCKET=${S3_BUCKET_NAME}
       - PREVIEW_BUCKET=ytb-audio-previews
       - LISTING_BUCKET=listing-audio
