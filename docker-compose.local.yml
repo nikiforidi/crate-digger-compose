@@ -110,7 +110,7 @@ services:
     restart: "no"
 
   # ============================================
-  # Crate Digger
+  # Crate Digger Migrations
   # ============================================
   crate-digger-migrate:
     build:
@@ -130,6 +130,9 @@ services:
     networks: [app-net]
     restart: "no"
 
+  # ============================================
+  # Crate Digger API
+  # ============================================
   crate-digger:
     build:
       context: ../crate-digger
@@ -144,9 +147,13 @@ services:
       - S3_SECRET_KEY=${S3_SECRET_KEY}
       - S3_BUCKET_NAME=${S3_BUCKET_NAME}
       - DISCOGS_TOKEN=${DISCOGS_TOKEN}
-      # 🔑 КЛЮЧЕВОЕ: обложки генерируются с хостом minio —
-      # Next-сервер достаёт их сервером изнутри app-net
+      # 🔑 обложки достаёт Next-сервер изнутри сети
       - MINIO_PUBLIC_URL=http://minio:9000
+      # 🔑 аудио-пайплайн: relay/preview живут под этими именами
+      - RELAY_SERVICE_URL=http://relay-api:8000
+      - PREVIEW_SERVICE_URL=http://preview-api:8000
+      - AUDIO_DOWNLOAD_TIMEOUT=600
+      - AUDIO_POLL_INTERVAL=5
     depends_on:
       db: { condition: service_healthy }
       db-init: { condition: service_completed_successfully }
@@ -160,6 +167,38 @@ services:
       timeout: 5s
       retries: 5
       start_period: 40s
+    restart: unless-stopped
+
+  # ============================================
+  # Crate Digger Worker (Celery) — ✅ ВОССТАНОВЛЕН
+  # ============================================
+  crate-digger-worker:
+    build:
+      context: ../crate-digger
+      dockerfile: Dockerfile
+    command: celery -A app.worker.celery worker --loglevel=info --concurrency=2
+    environment:
+      - DATABASE_URL=postgresql+psycopg2://postgres:${DB_PASSWORD}@db:5432/crate_digger
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
+      - S3_ENDPOINT_URL=${S3_ENDPOINT_URL:-http://minio:9000}
+      - S3_ACCESS_KEY=${S3_ACCESS_KEY}
+      - S3_SECRET_KEY=${S3_SECRET_KEY}
+      - S3_BUCKET_NAME=${S3_BUCKET_NAME}
+      - DISCOGS_TOKEN=${DISCOGS_TOKEN}
+      - MINIO_PUBLIC_URL=http://minio:9000
+      - RELAY_SERVICE_URL=http://relay-api:8000
+      - PREVIEW_SERVICE_URL=http://preview-api:8000
+      - AUDIO_DOWNLOAD_TIMEOUT=600
+      - AUDIO_POLL_INTERVAL=5
+    depends_on:
+      db: { condition: service_healthy }
+      db-init: { condition: service_completed_successfully }
+      crate-digger-migrate: { condition: service_completed_successfully }
+      redis: { condition: service_healthy }
+      minio: { condition: service_healthy }
+      relay-api: { condition: service_healthy }
+      preview-api: { condition: service_healthy }
+    networks: [app-net]
     restart: unless-stopped
 
   # ============================================
@@ -243,7 +282,7 @@ services:
       - MINIO_ACCESS_KEY=${S3_ACCESS_KEY}
       - MINIO_SECRET_KEY=${S3_SECRET_KEY}
       - MINIO_SECURE=false
-      # 🔑 КЛЮЧЕВОЕ: было http://localhost:9000 — Next-сервер не мог достучаться
+      # 🔑 обложки листингов жрёт Next-сервер изнутри сети
       - MINIO_PUBLIC_URL=http://minio:9000
       - LISTINGS_BUCKET=marketplace-listings
       - INTERNAL_SERVICE_TOKEN=${INTERNAL_SERVICE_TOKEN:-super_secret_internal_token_change_in_prod}
@@ -329,7 +368,7 @@ services:
       - MINIO_ACCESS_KEY=${S3_ACCESS_KEY}
       - MINIO_SECRET_KEY=${S3_SECRET_KEY}
       - MINIO_SECURE=false
-      # 🔑 Аудио-URL браузер грузит напрямую через nginx → относительный /minio
+      # 🔑 preview_url играет браузер через nginx
       - MINIO_PUBLIC_URL=/minio
       - MINIO_BUCKET=${S3_BUCKET_NAME}
       - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
@@ -388,12 +427,11 @@ services:
       - MINIO_ACCESS_KEY=${S3_ACCESS_KEY}
       - MINIO_SECRET_KEY=${S3_SECRET_KEY}
       - MINIO_SECURE=false
-      # 🔑 preview_url уходит в <audio src> браузера → через nginx
       - MINIO_PUBLIC_URL=/minio
       - SOURCE_BUCKET=${S3_BUCKET_NAME}
       - PREVIEW_BUCKET=ytb-audio-previews
       - LISTING_BUCKET=listing-audio
-      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/5
       - REDIS_EVENT_CHANNEL=preview:trigger
     depends_on:
       redis: { condition: service_healthy }
@@ -422,7 +460,7 @@ services:
       - SOURCE_BUCKET=${S3_BUCKET_NAME}
       - PREVIEW_BUCKET=ytb-audio-previews
       - LISTING_BUCKET=listing-audio
-      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/5
       - REDIS_EVENT_CHANNEL=preview:trigger
     depends_on:
       redis: { condition: service_healthy }
