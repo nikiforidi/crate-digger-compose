@@ -15,6 +15,7 @@ services:
       - RELAY_SERVICE_URL=http://relay-api:8000
       - PREVIEW_SERVICE_URL=http://preview-api:8000
       - REVIEW_SERVICE_URL=http://review-service:8000
+      - LOGISTICS_SERVICE_URL=http://logistics-service:8004
       - JWT_SECRET_KEY=${JWT_SECRET_KEY}
       - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/3
       - HTTP_TIMEOUT=30.0
@@ -52,8 +53,8 @@ services:
     build:
       context: ../marketplace-frontend
       dockerfile: Dockerfile
-    secrets:
-      - NPM_TOKEN
+      secrets:
+        - NPM_TOKEN
     ports:
       - "${FRONTEND_PORT:-3000}:3000"
     environment:
@@ -235,6 +236,7 @@ services:
       - JWT_SECRET_KEY=${JWT_SECRET_KEY}
       - MARKETPLACE_SERVICE_URL=http://marketplace-service:8003
       - INTERNAL_SERVICE_TOKEN=${INTERNAL_SERVICE_TOKEN:-super_secret_internal_token_change_in_prod}
+      - LOGISTICS_SERVICE_URL=${LOGISTICS_SERVICE_URL:-http://logistics-service:8004}
     depends_on:
       db: { condition: service_healthy }
       db-init: { condition: service_completed_successfully }
@@ -345,6 +347,47 @@ services:
     networks: [app-net]
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+  
+    # ============================================
+  # Logistics Service (ApiShip)
+  # ============================================
+  logistics-migrate:
+    build:
+      context: ../logistics-service
+      dockerfile: Dockerfile
+    command: alembic upgrade head
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://postgres:${DB_PASSWORD}@db:5432/logistics_db
+    depends_on:
+      db: { condition: service_healthy }
+      db-init: { condition: service_completed_successfully }
+    networks: [app-net]
+    restart: "no"
+
+  logistics-service:
+    build:
+      context: ../logistics-service
+      dockerfile: Dockerfile
+    expose: ["8004"]
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://postgres:${DB_PASSWORD}@db:5432/logistics_db
+      - APISHIP_BASE_URL=${APISHIP_BASE_URL:-https://api.apiship.ru/v1}
+      - APISHIP_API_KEY=${APISHIP_API_KEY:-}
+      - APISHIP_TEST_MODE=${APISHIP_TEST_MODE:-true}
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY}
+      - INTERNAL_SERVICE_TOKEN=${INTERNAL_SERVICE_TOKEN:-super_secret_internal_token_change_in_prod}
+    depends_on:
+      db: { condition: service_healthy }
+      db-init: { condition: service_completed_successfully }
+      logistics-migrate: { condition: service_completed_successfully }
+    networks: [app-net]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8004/health"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -529,6 +572,7 @@ services:
       PGPASSWORD=$${POSTGRES_PASSWORD} psql -h db -U postgres -c 'CREATE DATABASE marketplace_db;' 2>/dev/null;
       PGPASSWORD=$${POSTGRES_PASSWORD} psql -h db -U postgres -c 'CREATE DATABASE crate_digger;' 2>/dev/null;
       PGPASSWORD=$${POSTGRES_PASSWORD} psql -h db -U postgres -c 'CREATE DATABASE review_service;' 2>/dev/null;
+      PGPASSWORD=$${POSTGRES_PASSWORD} psql -h db -U postgres -c 'CREATE DATABASE logistics_db;' 2>/dev/null;
       exit 0
       "
     environment:
