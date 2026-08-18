@@ -8,6 +8,9 @@ services:
       auth-service: { condition: service_healthy }
       economy-service: { condition: service_healthy }
       crate-digger: { condition: service_healthy }
+      marketplace-service: { condition: service_healthy }
+      review-service: { condition: service_healthy }
+      logistics-service: { condition: service_healthy }
       relay-api: { condition: service_healthy }
       preview-api: { condition: service_healthy }
       redis: { condition: service_healthy }
@@ -90,6 +93,62 @@ services:
     networks: [app-net]
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
+  # === Marketplace Service ===
+  marketplace-service:
+    image: ghcr.io/nikiforidi/marketplace-service:${MARKETPLACE_VERSION}
+    expose: ["8003"]
+    env_file: .env.testing
+    depends_on:
+      db: { condition: service_healthy }
+      db-init: { condition: service_completed_successfully }
+      redis: { condition: service_healthy }
+      minio: { condition: service_healthy }
+      crate-digger: { condition: service_healthy }
+      auth-service: { condition: service_healthy }
+    networks: [app-net]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8003/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
+  # === Review Service ===
+  review-service:
+    image: ghcr.io/nikiforidi/review-service:${REVIEW_VERSION}
+    expose: ["8000"]
+    env_file: .env.testing
+    depends_on:
+      db: { condition: service_healthy }
+      db-init: { condition: service_completed_successfully }
+      redis: { condition: service_healthy }
+    networks: [app-net]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
+  # === Logistics Service (ApiShip) ===
+  logistics-service:
+    image: ghcr.io/nikiforidi/logistics-service:${LOGISTICS_VERSION}
+    expose: ["8004"]
+    env_file: .env.testing
+    depends_on:
+      db: { condition: service_healthy }
+      db-init: { condition: service_completed_successfully }
+    networks: [app-net]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8004/health"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -185,6 +244,10 @@ services:
       sleep 3;
       PGPASSWORD=$${DB_PASSWORD} psql -h db -U postgres -c 'CREATE DATABASE auth_db;' 2>/dev/null;
       PGPASSWORD=$${DB_PASSWORD} psql -h db -U postgres -c 'CREATE DATABASE economy_db;' 2>/dev/null;
+      PGPASSWORD=$${DB_PASSWORD} psql -h db -U postgres -c 'CREATE DATABASE marketplace_db;' 2>/dev/null;
+      PGPASSWORD=$${DB_PASSWORD} psql -h db -U postgres -c 'CREATE DATABASE crate_digger;' 2>/dev/null;
+      PGPASSWORD=$${DB_PASSWORD} psql -h db -U postgres -c 'CREATE DATABASE review_service;' 2>/dev/null;
+      PGPASSWORD=$${DB_PASSWORD} psql -h db -U postgres -c 'CREATE DATABASE logistics_db;' 2>/dev/null;
       exit 0
       "
     networks: [app-net]
@@ -230,8 +293,12 @@ services:
       /usr/bin/mc alias set myminio http://minio:9000 ${S3_ACCESS_KEY} ${S3_SECRET_KEY} &&
       /usr/bin/mc mb --ignore-existing myminio/${S3_BUCKET_NAME} &&
       /usr/bin/mc mb --ignore-existing myminio/ytb-audio-previews &&
+      /usr/bin/mc mb --ignore-existing myminio/marketplace-listings &&
+      /usr/bin/mc mb --ignore-existing myminio/listing-audio &&
       /usr/bin/mc anonymous set public myminio/${S3_BUCKET_NAME} &&
-      /usr/bin/mc anonymous set public myminio/ytb-audio-previews;
+      /usr/bin/mc anonymous set public myminio/ytb-audio-previews &&
+      /usr/bin/mc anonymous set public myminio/marketplace-listings &&
+      /usr/bin/mc anonymous set public myminio/listing-audio;
       exit 0
       "
     networks: [app-net]

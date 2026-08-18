@@ -1,5 +1,4 @@
 name: CI Integration Test
-
 on:
   push:
     branches: [main, develop]
@@ -44,9 +43,6 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GHCR_PAT }}
-
-      - name: Pull Logistics Service Image
-        run: docker pull ghcr.io/nikiforidi/logistic-service:latest
 
       - name: Prepare Telegram Session
         run: |
@@ -94,6 +90,10 @@ jobs:
           docker compose --env-file .env.testing run --rm --no-deps economy-service alembic upgrade head
           echo "→ marketplace-service"
           docker compose --env-file .env.testing run --rm --no-deps marketplace-service alembic upgrade head
+          echo "→ review-service"
+          docker compose --env-file .env.testing run --rm --no-deps review-service alembic upgrade head
+          echo "→ logistics-service"
+          docker compose --env-file .env.testing run --rm --no-deps logistics-service alembic upgrade head
           echo "✅ All migrations applied successfully!"
 
       - name: Start Application Services
@@ -135,7 +135,7 @@ jobs:
           fi
           echo "✅ All services are healthy!"
           docker compose --env-file .env.testing ps --format "table {{.Service}}\t{{.Status}}" | \
-            grep -E "^(auth-service|crate-digger|economy-service|marketplace-service|relay-api|preview-api|gateway|marketplace-frontend|db|redis|minio|logistics-service) "
+            grep -E "^(auth-service|crate-digger|economy-service|marketplace-service|review-service|logistics-service|relay-api|preview-api|gateway|marketplace-frontend|db|redis|minio) "
 
       - name: Debug on failure
         if: failure()
@@ -149,7 +149,6 @@ jobs:
           echo "📜 Logistics Service Logs:"
           docker compose --env-file .env.testing logs logistics-service --tail=100
           echo ""
-          # ... остальное без изменений ...
           echo "📜 Crate Digger Logs:"
           docker compose --env-file .env.testing logs crate-digger --tail=50
           echo ""
