@@ -139,16 +139,27 @@ services:
     restart: unless-stopped
 
   # === Logistics Service (ApiShip) ===
-  logistics-service:
-    image: ghcr.io/nikiforidi/logistics-service:${LOGISTICS_VERSION}
-    expose: ["8004"]
+  logistics-migrate:
+    image: ghcr.io/nikiforidi/logistics-service:${LOGISTICS_VERSION:-latest}
+    command: alembic upgrade head
     env_file: .env.testing
     depends_on:
       db: { condition: service_healthy }
       db-init: { condition: service_completed_successfully }
     networks: [app-net]
+    restart: "no"
+
+  logistics-service:
+    image: ghcr.io/nikiforidi/logistics-service:${LOGISTICS_VERSION:-latest}
+    expose: ["8000"]
+    env_file: .env.testing
+    depends_on:
+      db: { condition: service_healthy }
+      db-init: { condition: service_completed_successfully }
+      logistics-migrate: { condition: service_completed_successfully }
+    networks: [app-net]
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8004/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 10s
       timeout: 5s
       retries: 5
