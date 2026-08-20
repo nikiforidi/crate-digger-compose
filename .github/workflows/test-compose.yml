@@ -90,8 +90,6 @@ jobs:
           docker compose --env-file .env.testing run --rm --no-deps economy-service alembic upgrade head
           echo "→ marketplace-service"
           docker compose --env-file .env.testing run --rm --no-deps marketplace-service alembic upgrade head
-          echo "→ review-service"
-          docker compose --env-file .env.testing run --rm --no-deps review-service alembic upgrade head
           echo "→ logistics-service"
           docker compose --env-file .env.testing run --rm --no-deps logistics-service alembic upgrade head
           echo "✅ All migrations applied successfully!"

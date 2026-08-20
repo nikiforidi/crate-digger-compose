@@ -36,6 +36,7 @@ services:
       relay-api: { condition: service_healthy }
       preview-api: { condition: service_healthy }
       review-service: { condition: service_healthy }
+      logistics-service: { condition: service_healthy }
       redis: { condition: service_healthy }
     networks: [app-net]
     healthcheck:
@@ -60,7 +61,7 @@ services:
     environment:
       - NODE_ENV=development
       - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost}
-      - NEXT_PUBLIC_YANDEX_MAPS_API_KEY=${NEXT_PUBLIC_API_URL}
+      - NEXT_PUBLIC_YANDEX_MAPS_API_KEY=${NEXT_PUBLIC_YANDEX_MAPS_API_KEY:-} 
     depends_on:
       gateway: { condition: service_healthy }
     networks: [app-net]
@@ -378,8 +379,9 @@ services:
     environment:
       - DATABASE_URL=postgresql+asyncpg://postgres:${DB_PASSWORD}@db:5432/logistics_db
       - APISHIP_BASE_URL=${APISHIP_BASE_URL:-https://api.apiship.ru/v1}
-      - APISHIP_API_KEY=${APISHIP_API_KEY:-}
+      - APISHIP_TOKEN=${APISHIP_TOKEN:-}            # 🔑 было APISHIP_API_KEY
       - APISHIP_TEST_MODE=${APISHIP_TEST_MODE:-true}
+      - APISHIP_WEBHOOK_URL=${APISHIP_WEBHOOK_URL:-http://localhost/api/v1/shipping/webhooks/apiship}
       - JWT_SECRET_KEY=${JWT_SECRET_KEY}
       - INTERNAL_SERVICE_TOKEN=${INTERNAL_SERVICE_TOKEN:-super_secret_internal_token_change_in_prod}
     depends_on:
