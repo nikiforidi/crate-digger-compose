@@ -58,10 +58,10 @@ jobs:
       - name: Start Infrastructure Only (DB, Redis, MinIO)
         run: |
           echo "🚀 Starting infrastructure services..."
-          docker compose --env-file .env.testing up -d db redis minio createbuckets db-init
+          docker compose --env-file .env.testing -f docker-compose.testing.yml up -d db redis minio createbuckets db-init
           echo "⏳ Waiting for PostgreSQL to be ready..."
           for i in {1..15}; do
-            if docker compose --env-file .env.testing exec -T db pg_isready -U postgres > /dev/null 2>&1; then
+            if docker compose --env-file .env.testing -f docker-compose.testing.yml exec -T db pg_isready -U postgres > /dev/null 2>&1; then
               echo "✅ PostgreSQL is ready!"
               break
             fi
@@ -69,7 +69,7 @@ jobs:
           done
           echo "⏳ Waiting for db-init to complete..."
           for i in {1..10}; do
-            if docker compose --env-file .env.testing ps db-init | grep -q "Exit 0"; then
+            if docker compose --env-file .env.testing -f docker-compose.testing.yml ps db-init | grep -q "Exit 0"; then
               echo "✅ db-init completed!"
               break
             fi
@@ -83,21 +83,21 @@ jobs:
           source .env.testing
           set +a
           echo "→ auth-service"
-          docker compose --env-file .env.testing run --rm --no-deps auth-service alembic upgrade head
+          docker compose --env-file .env.testing -f docker-compose.testing.yml run --rm --no-deps auth-service alembic upgrade head
           echo "→ crate-digger"
-          docker compose --env-file .env.testing run --rm --no-deps crate-digger alembic upgrade head
+          docker compose --env-file .env.testing -f docker-compose.testing.yml run --rm --no-deps crate-digger alembic upgrade head
           echo "→ economy-service"
-          docker compose --env-file .env.testing run --rm --no-deps economy-service alembic upgrade head
+          docker compose --env-file .env.testing -f docker-compose.testing.yml run --rm --no-deps economy-service alembic upgrade head
           echo "→ marketplace-service"
-          docker compose --env-file .env.testing run --rm --no-deps marketplace-service alembic upgrade head
+          docker compose --env-file .env.testing -f docker-compose.testing.yml run --rm --no-deps marketplace-service alembic upgrade head
           echo "→ logistics-service"
-          docker compose --env-file .env.testing run --rm --no-deps logistics-service alembic upgrade head
+          docker compose --env-file .env.testing -f docker-compose.testing.yml run --rm --no-deps logistics-service alembic upgrade head
           echo "✅ All migrations applied successfully!"
 
       - name: Start Application Services
         run: |
           echo "🚀 Starting application services (now that DB is ready)..."
-          docker compose --env-file .env.testing up -d
+          docker compose --env-file .env.testing -f docker-compose.testing.yml up -d
 
       - name: Wait for API readiness
         run: |
@@ -110,12 +110,12 @@ jobs:
             sleep 2
           done
           echo "❌ APIs failed to become ready in 60 seconds"
-          docker compose --env-file .env.testing ps
-          docker compose --env-file .env.testing logs auth-service
+          docker compose --env-file .env.testing -f docker-compose.testing.yml ps
+          docker compose --env-file .env.testing -f docker-compose.testing.yml logs auth-service
           exit 1
 
       - name: Init MinIO buckets
-        run: docker compose --env-file .env.testing run --rm createbuckets
+        run: docker compose --env-file .env.testing -f docker-compose.testing.yml run --rm createbuckets
 
       - name: Health Checks
         run: |
@@ -123,7 +123,7 @@ jobs:
           curl -sf http://localhost/health && echo " ✅"
           echo ""
           echo "🔍 Checking all services status via docker compose..."
-          UNHEALTHY=$(docker compose --env-file .env.testing ps --format "{{.Service}} {{.Status}}" | \
+          UNHEALTHY=$(docker compose --env-file .env.testing -f docker-compose.testing.yml ps --format "{{.Service}} {{.Status}}" | \
             grep -E "^(auth-service|crate-digger|economy-service|marketplace-service|review-service|logistics-service|relay-api|preview-api|gateway|marketplace-frontend|db|redis|minio) " | \
             grep -v "(healthy)" || true)
           if [ -n "$UNHEALTHY" ]; then
@@ -132,39 +132,39 @@ jobs:
             exit 1
           fi
           echo "✅ All services are healthy!"
-          docker compose --env-file .env.testing ps --format "table {{.Service}}\t{{.Status}}" | \
+          docker compose --env-file .env.testing -f docker-compose.testing.yml ps --format "table {{.Service}}\t{{.Status}}" | \
             grep -E "^(auth-service|crate-digger|economy-service|marketplace-service|review-service|logistics-service|relay-api|preview-api|gateway|marketplace-frontend|db|redis|minio) "
 
       - name: Debug on failure
         if: failure()
         run: |
           echo "📦 Container Status:"
-          docker compose --env-file .env.testing ps -a
+          docker compose --env-file .env.testing -f docker-compose.testing.yml ps -a
           echo ""
           echo "📜 Review Service Logs:"
-          docker compose --env-file .env.testing logs review-service --tail=100
+          docker compose --env-file .env.testing -f docker-compose.testing.yml logs review-service --tail=100
           echo ""
           echo "📜 Logistics Service Logs:"
-          docker compose --env-file .env.testing logs logistics-service --tail=100
+          docker compose --env-file .env.testing -f docker-compose.testing.yml logs logistics-service --tail=100
           echo ""
           echo "📜 Crate Digger Logs:"
-          docker compose --env-file .env.testing logs crate-digger --tail=50
+          docker compose --env-file .env.testing -f docker-compose.testing.yml logs crate-digger --tail=50
           echo ""
           echo "📜 Auth Service Logs:"
-          docker compose --env-file .env.testing logs auth-service --tail=50
+          docker compose --env-file .env.testing -f docker-compose.testing.yml logs auth-service --tail=50
           echo ""
           echo "📜 Economy Service Logs:"
-          docker compose --env-file .env.testing logs economy-service --tail=50
+          docker compose --env-file .env.testing -f docker-compose.testing.yml logs economy-service --tail=50
           echo ""
           echo "📜 Marketplace Service Logs:"
-          docker compose --env-file .env.testing logs marketplace-service --tail=50
+          docker compose --env-file .env.testing -f docker-compose.testing.yml logs marketplace-service --tail=50
           echo ""
           echo "📜 Marketplace Frontend Logs:"
-          docker compose --env-file .env.testing logs marketplace-frontend --tail=50
+          docker compose --env-file .env.testing -f docker-compose.testing.yml logs marketplace-frontend --tail=50
           echo ""
           echo "📜 Gateway Logs:"
-          docker compose --env-file .env.testing logs gateway --tail=50
+          docker compose --env-file .env.testing -f docker-compose.testing.yml logs gateway --tail=50
 
       - name: Cleanup
         if: always()
-        run: docker compose --env-file .env.testing down -v
+        run: docker compose --env-file .env.testing -f docker-compose.testing.yml down -v
