@@ -59,14 +59,20 @@ jobs:
         run: |
           echo "🚀 Starting infrastructure services..."
           docker compose --env-file .env.testing -f docker-compose.testing.yml up -d db redis minio createbuckets db-init
+          
           echo "⏳ Waiting for PostgreSQL to be ready..."
           for i in {1..15}; do
             if docker compose --env-file .env.testing -f docker-compose.testing.yml exec -T db pg_isready -U postgres > /dev/null 2>&1; then
               echo "✅ PostgreSQL is ready!"
               break
             fi
+            if [ $i -eq 3 ]; then
+              echo "⚠️ PostgreSQL still not ready, showing logs:"
+              docker compose --env-file .env.testing -f docker-compose.testing.yml logs db --tail=30
+            fi
             sleep 2
           done
+          
           echo "⏳ Waiting for db-init to complete..."
           for i in {1..10}; do
             if docker compose --env-file .env.testing -f docker-compose.testing.yml ps db-init | grep -q "Exit 0"; then

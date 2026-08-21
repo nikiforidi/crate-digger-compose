@@ -230,6 +230,18 @@ services:
     restart: unless-stopped
     healthcheck:
       disable: true
+  
+  # === Marketplace Frontend ===
+  marketplace-frontend:
+    image: ghcr.io/nikiforidi/marketplace-frontend:${FRONTEND_VERSION}
+    expose: ["3000"]
+    env_file: .env.testing
+    environment:
+      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost}
+    depends_on:
+      gateway: { condition: service_healthy }
+    networks: [app-net]
+    restart: unless-stopped
 
   # === Shared Infrastructure ===
   db:
