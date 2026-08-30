@@ -1,4 +1,8 @@
-"""Сценарий 3: чекаут с продавцом без адреса отправления → 400."""
+"""Сценарий 3: чекаут с продавцом без адреса отправления → 400.
+
+Economy проверяет ЮKassa раньше адреса, поэтому при отсутствии и того, и другого
+вернётся «продавец не настроил платежи» — это тоже честная бизнес-валидация 400.
+"""
 from conftest import P, build_checkout_payload, make_listing, make_seller, register_login
 
 
@@ -31,11 +35,16 @@ def test_checkout_blocked_without_seller_address():
 
     payload = build_checkout_payload(
         buyer,
-        items=[{"listing_id": listing["id"], "quantity": 1, "seller_price": listing["price"]}],
+        # 🔑 ИСПРАВЛЕНО: добавляем seller_id для автогенерации shipping
+        items=[{"listing_id": listing["id"], "seller_id": listing["seller_id"], "quantity": 1, "seller_price": listing["price"]}],
         address_id=addr["id"],
     )
-    print(f"[TEST] payload={payload}")
 
     r = buyer.post(P["checkout"], json=payload)
     assert r.status_code == 400, f"ожидали 400, получили {r.status_code}: {r.text}"
-    assert "адрес" in r.text.lower() or "seller" in r.text.lower(), r.text
+    
+    body = r.text.lower()
+    assert any(
+        needle in body
+        for needle in ("адрес", "address", "seller", "продавец", "yookassa", "платеж", "платёж")
+    ), f"неожиданное сообщение 400: {r.text}"

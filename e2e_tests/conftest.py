@@ -219,8 +219,7 @@ def make_listing(seller: Api, price: int = 1500) -> dict:
 
 
 def build_checkout_payload(buyer: Api, items: list[dict], address_id: str, shipping: list[dict] = None) -> dict:
-    """Строит payload для POST /orders/checkout под реальную схему economy-service."""
-    # Force fetch profile if not cached
+    """Строит payload для POST /orders/checkout."""
     profile = buyer.profile
     if not profile:
         r = buyer.get(P["me"])
@@ -229,9 +228,6 @@ def build_checkout_payload(buyer: Api, items: list[dict], address_id: str, shipp
         profile = r.json()
         buyer._profile = profile
     
-    print(f"[DEBUG] profile={profile}")
-    
-    # Try multiple possible field names for user id
     buyer_id = (
         profile.get("id") 
         or profile.get("user_id") 
@@ -241,8 +237,6 @@ def build_checkout_payload(buyer: Api, items: list[dict], address_id: str, shipp
         or profile.get("user_id_str")
     )
     customer_email = profile.get("email")
-    
-    print(f"[DEBUG] extracted buyer_id={buyer_id}, customer_email={customer_email}")
     
     assert buyer_id and customer_email, f"в профиле нет id/email: {profile}"
 
@@ -260,8 +254,21 @@ def build_checkout_payload(buyer: Api, items: list[dict], address_id: str, shipp
         "items": checkout_items,
         "address_id": address_id,
     }
-    if shipping:
-        payload["shipping"] = shipping
+    
+    # 🔑 ИСПРАВЛЕНО: если shipping не передан, строим его из items
+    if not shipping:
+        shipping = []
+        for item in items:
+            # Для каждого уникального seller_id добавляем запись shipping
+            seller_id = item.get("seller_id")
+            if seller_id and not any(s.get("seller_id") == seller_id for s in shipping):
+                shipping.append({
+                    "seller_id": seller_id,
+                    "method": "pickup",
+                    "point": {"id": 1, "name": "ПВЗ По умолчанию", "address": "Москва, ул. Тестовая, 1"},
+                })
+    
+    payload["shipping"] = shipping
     
     print(f"[DEBUG] final payload keys={list(payload.keys())}")
     return payload
