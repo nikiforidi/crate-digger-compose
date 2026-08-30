@@ -183,7 +183,7 @@ services:
     restart: "no"
 
   logistics-service:
-    image: ghcr.io/nikiforidi/logistics-service:${LOGISTICS_VERSION}
+    image: ghcr.io/nikiforidi/logistics-service:${LOGISTICS_VERSION:-latest}
     expose: ["8004"]
     env_file: .env.testing
     environment:
