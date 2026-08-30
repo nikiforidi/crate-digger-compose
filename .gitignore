@@ -6,3 +6,5 @@
 sessions/ytb_session.session
 .npm_token
 .npm_token
+env.txt
+.gitignore
