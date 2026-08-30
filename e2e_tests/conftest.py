@@ -5,8 +5,7 @@
     pytest e2e_tests -v                     # быстрый набор
     E2E_RUN_SLOW=1 pytest e2e_tests -v      # + авто-отмена 72h (долгий)
 
-Все маршруты — в словаре P. Если роут отличается — правим только там.
-Проверки в БД идут через `docker exec <db> psql` (порты БД наружу не проброшены).
+Все маршруты выверены по openapi-6.json из релиза gateway.
 """
 import os
 import subprocess
@@ -18,8 +17,8 @@ import pytest
 BASE_URL = os.getenv("E2E_BASE_URL", "http://localhost").rstrip("/")
 API = f"{BASE_URL}/api/v1"
 
-DB_CONTAINER = os.getenv("E2E_DB_CONTAINER", "crate-digger-compose-db-1")
-GW_CONTAINER = os.getenv("E2E_GW_CONTAINER", "crate-digger-compose-gateway-1")
+DB_CONTAINER = os.getenv("E2E_DB_CONTAINER", "ci-db-1")
+GW_CONTAINER = os.getenv("E2E_GW_CONTAINER", "ci-gateway-1")
 
 ADMIN_EMAIL = os.getenv("E2E_ADMIN_EMAIL", "admin@crate.market")
 ADMIN_PASSWORD = os.getenv("E2E_ADMIN_PASSWORD", "admin123")
@@ -27,28 +26,29 @@ PASSWORD = "E2e!Passw0rd#2026"
 
 RUN_SLOW = os.getenv("E2E_RUN_SLOW", "") == "1"
 
-# ─────────────── маршруты (единственная точка правки) ───────────────
+# ─────────────── маршруты (выверено по openapi) ───────────────
 P = {
     "register": "/auth/register",
     "login": "/auth/login",
     "me": "/auth/me",
-    # адреса покупателя/продавца
+    # addresses
     "addresses": "/addresses",
     "address_delete": "/addresses/{id}",
-    # логистика
+    # shipping
     "shipping_calculate": "/shipping/calculate",
     "shipping_points": "/shipping/points",
-    "handover": "/shipping/orders/{id}/handover",  # «Отнесу в ПВЗ сам»
+    "handover": "/shipping/orders/{id}/dispatch",  # 🔑 dispatch вместо handover
     # economy
     "checkout": "/orders/checkout",
     "order": "/orders/{id}",
     "payment_methods": "/orders/payment-methods",
-    # marketplace
-    "listing_create": "/listings",
-    "seller_apply": "/sellers/apply",
-    "admin_requests": "/admin/seller-requests",
-    "admin_approve": "/admin/seller-requests/{id}/approve",
-    # review-service
+    # listings
+    "listing_create": "/listings/free",  # 🔑 свободный листинг (FreeListingCreate)
+    # seller requests
+    "seller_apply": "/auth/requests/me/request-seller",  # 🔑 без requestBody
+    "admin_requests": "/auth/requests/seller",
+    "admin_approve": "/auth/requests/{id}/approve",
+    # reviews
     "review": "/sellers/{id}/reviews",
 }
 
@@ -62,14 +62,11 @@ def docker_exec(container, *cmd, check=True):
 
 
 def sql(db: str, query: str) -> str:
-    """SQL в БД стека (economy_db / logistics_db / marketplace_db / auth_db)."""
     r = docker_exec(DB_CONTAINER, "psql", "-U", "postgres", "-d", db, "-tAc", query)
     return r.stdout.strip()
 
 
 class Api:
-    """Тонкий клиент gateway с токеном."""
-
     def __init__(self, token=None):
         headers = {"Authorization": f"Bearer {token}"} if token else {}
         self.c = httpx.Client(base_url=API, timeout=60, headers=headers)
@@ -94,14 +91,14 @@ def new_credentials():
 
 def register(email: str):
     a = Api()
-    r = a.post(P["register"], json={"email": email, "password": PASSWORD, "full_name": "E2E"})
+    r = a.post(P["register"], json={"email": email, "password": PASSWORD})
     assert r.status_code in (200, 201, 202, 409), f"register: {r.status_code} {r.text}"
 
 
 def login(email: str, password: str = PASSWORD) -> Api:
     a = Api()
     r = a.post(P["login"], json={"email": email, "password": password})
-    if r.status_code in (404, 422):  # OAuth2 form fallback
+    if r.status_code in (404, 422):
         r = a.post(P["login"], data={"username": email, "password": password})
     assert r.status_code == 200, f"login({email}): {r.status_code} {r.text}"
     token = r.json().get("access_token")
@@ -133,18 +130,14 @@ def make_address(api: Api, apartment=None) -> dict:
 
 
 def make_seller(with_apartment: bool = True) -> Api:
-    """Регистрирует пользователя, подаёт заявку продавца и активирует её через админа."""
     user = register_login()
-    addr = make_address(user, apartment="12" if with_apartment else None)
-    r = user.post(
-        P["seller_apply"],
-        json={
-            "address_id": addr["id"],
-            "recipient_name": "E2E Seller",
-            "recipient_phone": "+7 999 000-00-00",
-        },
-    )
-    assert r.status_code in (200, 201), f"seller_apply: {r.status_code} {r.text}"
+    # Создаем адрес (он понадобится для логистики)
+    make_address(user, apartment="12" if with_apartment else None)
+    
+    # 🔑 ИСПРАВЛЕНО: подаем заявку БЕЗ тела (в openapi нет requestBody)
+    r = user.post(P["seller_apply"])
+    assert r.status_code in (200, 201, 202), f"seller_apply: {r.status_code} {r.text}"
+    
     approve_last_seller_request()
     return user
 
@@ -162,15 +155,18 @@ def approve_last_seller_request():
 
 
 def make_listing(seller: Api, price: int = 1500) -> dict:
+    # 🔑 ИСПРАВЛЕНО: FreeListingCreate требует artist и year
     r = seller.post(
         P["listing_create"],
         json={
             "title": f"Vinyl E2E {uuid.uuid4().hex[:6]}",
-            "description": "test pressing",
-            "price": price,
-            "category": "vinyl",
+            "artist": "E2E Artist",
+            "year": 2024,
             "condition": "M",
-            "city": "Москва",
+            "price": float(price),
+            "description": "test pressing",
+            "genre": "Rock",
+            "format": "Vinyl",
         },
     )
     assert r.status_code in (200, 201), f"listing: {r.status_code} {r.text}"
@@ -205,11 +201,9 @@ def listing_b(seller_b) -> dict:
 
 @pytest.fixture(scope="session")
 def gw_openapi() -> dict:
-    """Реальные маршруты gateway — для калибровки словаря P."""
     try:
         r = docker_exec(GW_CONTAINER, "curl", "-s", "http://localhost:8000/openapi.json")
         import json
-
         return json.loads(r.stdout).get("paths", {})
     except Exception:
         return {}
