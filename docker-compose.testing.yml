@@ -2,6 +2,7 @@ services:
   # === API Gateway ===
   gateway:
     image: ghcr.io/nikiforidi/api-gateway:${GATEWAY_VERSION}
+    pull_policy: always
     expose: ["8000"]
     env_file: .env.testing
     environment:
@@ -48,6 +49,7 @@ services:
   # === Auth Service ===
   auth-service:
     image: ghcr.io/nikiforidi/auth-service:${AUTH_VERSION}
+    pull_policy: always
     expose: ["8000"]
     env_file: .env.testing
     environment:
@@ -70,6 +72,7 @@ services:
   # === Crate Digger ===
   crate-digger:
     image: ghcr.io/nikiforidi/crate-digger:${CRATE_VERSION}
+    pull_policy: always
     expose: ["8000"]
     env_file: .env.testing
     environment:
@@ -98,6 +101,7 @@ services:
   # === Economy Service ===
   economy-service:
     image: ghcr.io/nikiforidi/economy-service:${ECONOMY_VERSION}
+    pull_policy: always
     expose: ["8000"]
     env_file: .env.testing
     environment:
@@ -121,6 +125,7 @@ services:
   # === Marketplace Service ===
   marketplace-service:
     image: ghcr.io/nikiforidi/marketplace-service:${MARKETPLACE_VERSION}
+    pull_policy: always
     expose: ["8003"]
     env_file: .env.testing
     environment:
@@ -151,6 +156,7 @@ services:
   # === Review Service ===
   review-service:
     image: ghcr.io/nikiforidi/crate-reviews:${REVIEW_VERSION}
+    pull_policy: always
     expose: ["8000"]
     env_file: .env.testing
     environment:
@@ -172,6 +178,7 @@ services:
   # === Logistics (ApiShip) ===
   logistics-migrate:
     image: ghcr.io/nikiforidi/logistics-service:${LOGISTICS_VERSION}
+    pull_policy: always
     command: alembic upgrade head
     env_file: .env.testing
     environment:
@@ -184,6 +191,7 @@ services:
 
   logistics-service:
     image: ghcr.io/nikiforidi/logistics-service:${LOGISTICS_VERSION}
+    pull_policy: always
     expose: ["8004"]
     env_file: .env.testing
     environment:
@@ -208,6 +216,7 @@ services:
   # === YTB Audio Relay ===
   relay-api:
     image: ghcr.io/nikiforidi/ytb-audio-relay:${RELAY_VERSION}
+    pull_policy: always
     expose: ["8000"]
     env_file: .env.testing
     environment:
@@ -235,6 +244,7 @@ services:
 
   relay-worker:
     image: ghcr.io/nikiforidi/ytb-audio-relay:${RELAY_VERSION}
+    pull_policy: always
     env_file: .env.testing
     environment:
       - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
@@ -258,6 +268,7 @@ services:
   # === YTB Audio Preview ===
   preview-api:
     image: ghcr.io/nikiforidi/ytb-audio-preview:${PREVIEW_VERSION}
+    pull_policy: always
     expose: ["8000"]
     env_file: .env.testing
     environment:
@@ -285,6 +296,7 @@ services:
 
   preview-worker:
     image: ghcr.io/nikiforidi/ytb-audio-preview:${PREVIEW_VERSION}
+    pull_policy: always
     env_file: .env.testing
     environment:
       - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/5
@@ -308,6 +320,7 @@ services:
   # === Marketplace Frontend ===
   marketplace-frontend:
     image: ghcr.io/nikiforidi/marketplace-frontend:${FRONTEND_VERSION}
+    pull_policy: always
     expose: ["3000"]
     env_file: .env.testing
     environment:

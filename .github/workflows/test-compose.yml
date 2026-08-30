@@ -92,6 +92,12 @@ jobs:
           done
           echo "✅ All migrations applied successfully!"
 
+            - name: Pull latest images
+        run: |
+          echo "🔄 Pulling latest images from GHCR..."
+          docker compose --env-file .env.testing -f docker-compose.testing.yml pull
+          echo "✅ Images pulled successfully"
+
       - name: Start Application Services
         run: |
           echo "🚀 Starting application services (now that DB is ready)..."
