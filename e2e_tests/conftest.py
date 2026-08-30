@@ -130,16 +130,26 @@ def make_address(api: Api, apartment=None) -> dict:
 
 
 def make_seller(with_apartment: bool = True) -> Api:
+    """Регистрирует пользователя, подаёт заявку продавца и активирует её через админа."""
     user = register_login()
     # Создаем адрес (он понадобится для логистики)
     make_address(user, apartment="12" if with_apartment else None)
     
-    # 🔑 ИСПРАВЛЕНО: подаем заявку БЕЗ тела (в openapi нет requestBody)
+    # Подаем заявку БЕЗ тела (в openapi нет requestBody)
     r = user.post(P["seller_apply"])
     assert r.status_code in (200, 201, 202), f"seller_apply: {r.status_code} {r.text}"
     
     approve_last_seller_request()
-    return user
+    
+    # 🔑 КРИТИЧНО: после approve роль в БД обновилась, но JWT содержит старую роль "user"
+    # Делаем refresh для получения нового токена с ролью "seller"
+    r_refresh = user.post("/auth/refresh")
+    assert r_refresh.status_code == 200, f"refresh: {r_refresh.status_code} {r_refresh.text}"
+    new_token = r_refresh.json().get("access_token")
+    assert new_token, f"refresh не вернул access_token: {r_refresh.text}"
+    
+    # Возвращаем Api с обновлённым токеном
+    return Api(new_token)
 
 
 def approve_last_seller_request():
