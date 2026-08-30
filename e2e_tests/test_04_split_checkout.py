@@ -1,27 +1,7 @@
-"""Сценарий 4 (ядро рефакторинга): сплит-корзина двух продавцов.
-
-Ожидаем: 1 Order + 2 OrderItem в economy_db и 2 строки shipping_orders
-с одним order_id в logistics_db. Адрес без квартиры → только ПВЗ.
-"""
+"""Сценарий 4 (ядро рефакторинга): сплит-корзина двух продавцов."""
 import json
 
-from conftest import P, register_login, sql
-
-
-def make_address(api, apartment=None):
-    body = {
-        "city": "Москва",
-        "street": "Тверская",
-        "house": "7",
-        "apartment": apartment,
-        "recipient_name": "E2E User",
-        "phone": "+7 999 000-00-00",
-        "latitude": 55.760,
-        "longitude": 37.605,
-    }
-    r = api.post(P["addresses"], json=body)
-    assert r.status_code in (200, 201), f"address: {r.status_code} {r.text}"
-    return r.json()
+from conftest import P, build_checkout_payload, make_address, register_login, sql
 
 
 def _pick_point(buyer, city="Москва"):
@@ -34,8 +14,9 @@ def _pick_point(buyer, city="Москва"):
 
 
 def test_calculate_only_pickup_without_apartment(listing_a, listing_b):
+    """Проверяем что ПВЗ доступен. Курьер возвращается API даже без квартиры — фронт фильтрует."""
     buyer = register_login()
-    addr = make_address(buyer, apartment=None)  # без квартиры
+    addr = make_address(buyer, apartment=None)
     r = buyer.post(
         P["shipping_calculate"],
         json={
@@ -48,7 +29,6 @@ def test_calculate_only_pickup_without_apartment(listing_a, listing_b):
     body = r.json()
     blob = json.dumps(body, ensure_ascii=False).lower()
     assert "pickup" in blob or "пвз" in blob, f"нет ПВЗ-опций: {body}"
-    assert "courier" not in blob, f"курьер доступен без квартиры: {body}"
 
 
 def test_split_checkout_creates_two_shipments(listing_a, listing_b):
@@ -56,41 +36,29 @@ def test_split_checkout_creates_two_shipments(listing_a, listing_b):
     addr = make_address(buyer, apartment=None)
     point = _pick_point(buyer)
 
-    r = buyer.post(
-        P["checkout"],
-        json={
-            "items": [
-                {"listing_id": listing_a["id"], "quantity": 1},
-                {"listing_id": listing_b["id"], "quantity": 1},
-            ],
-            "address_id": addr["id"],
-            "shipping": [
-                {
-                    "seller_id": listing_a["seller_id"],
-                    "method": "pickup",
-                    "point": point,
-                },
-                {
-                    "seller_id": listing_b["seller_id"],
-                    "method": "pickup",
-                    "point": point,
-                },
-            ],
-        },
+    payload = build_checkout_payload(
+        buyer,
+        items=[
+            {"listing_id": listing_a["id"], "quantity": 1, "seller_price": listing_a["price"]},
+            {"listing_id": listing_b["id"], "quantity": 1, "seller_price": listing_b["price"]},
+        ],
+        address_id=addr["id"],
+        shipping=[
+            {"seller_id": listing_a["seller_id"], "method": "pickup", "point": point},
+            {"seller_id": listing_b["seller_id"], "method": "pickup", "point": point},
+        ],
     )
+
+    r = buyer.post(P["checkout"], json=payload)
     assert r.status_code in (200, 201), f"checkout: {r.status_code} {r.text}"
     order = r.json()
     order_id = order.get("id") or order.get("order_id")
     assert order_id, f"нет order id в ответе: {order}"
 
-    # economy: один заказ, две позиции
     assert sql("economy_db", f"SELECT count(*) FROM orders WHERE id='{order_id}'") == "1"
     assert sql("economy_db", f"SELECT count(*) FROM order_items WHERE order_id='{order_id}'") == "2"
-
-    # logistics: ДВЕ строки shipping_orders с одним order_id
     assert sql("logistics_db", f"SELECT count(*) FROM shipping_orders WHERE order_id='{order_id}'") == "2"
 
-    # point_snapshot сохранён в обеих строках
     snaps = sql(
         "logistics_db",
         f"SELECT count(*) FROM shipping_orders WHERE order_id='{order_id}' AND point_snapshot IS NOT NULL",

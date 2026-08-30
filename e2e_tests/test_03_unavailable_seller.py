@@ -1,13 +1,11 @@
-"""Сценарий 3: чекаут с продавцом без адреса отправления → 400 + amber-блок на фронте."""
-from conftest import P, make_listing, make_seller, register_login
+"""Сценарий 3: чекаут с продавцом без адреса отправления → 400."""
+from conftest import P, build_checkout_payload, make_listing, make_seller, register_login
 
 
 def test_checkout_blocked_without_seller_address():
-    # продавец активирован, но адрес отправления удалён
     seller = make_seller(with_apartment=True)
     listing = make_listing(seller)
 
-    # удаляем адрес отправления
     r = seller.get(P["addresses"])
     assert r.status_code == 200
     addrs = r.json()
@@ -31,12 +29,12 @@ def test_checkout_blocked_without_seller_address():
         },
     ).json()
 
-    r = buyer.post(
-        P["checkout"],
-        json={
-            "items": [{"listing_id": listing["id"], "quantity": 1}],
-            "address_id": addr["id"],
-        },
+    payload = build_checkout_payload(
+        buyer,
+        items=[{"listing_id": listing["id"], "quantity": 1, "seller_price": listing["price"]}],
+        address_id=addr["id"],
     )
+
+    r = buyer.post(P["checkout"], json=payload)
     assert r.status_code == 400, f"ожидали 400, получили {r.status_code}: {r.text}"
     assert "адрес" in r.text.lower() or "seller" in r.text.lower(), r.text

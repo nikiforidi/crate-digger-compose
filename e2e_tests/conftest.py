@@ -27,7 +27,7 @@ PASSWORD = "E2e!Passw0rd#2026"
 
 RUN_SLOW = os.getenv("E2E_RUN_SLOW", "") == "1"
 
-# 1x1 PNG для обложки листинга (валидный минимальный PNG)
+# 1x1 PNG для обложки листинга
 PNG_1X1 = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJ"
     "AAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
@@ -39,34 +39,27 @@ P = {
     "login": "/auth/login",
     "me": "/auth/me",
     "refresh": "/auth/refresh",
-    # addresses
     "addresses": "/addresses",
     "address_delete": "/addresses/{id}",
-    # shipping
     "shipping_calculate": "/shipping/calculate",
     "shipping_points": "/shipping/points",
     "handover": "/shipping/orders/{id}/dispatch",
-    # economy
     "checkout": "/orders/checkout",
     "order": "/orders/{id}",
     "payment_methods": "/orders/payment-methods",
-    # listings
     "listing_create": "/listings/free",
     "listing_get": "/listings/{id}",
     "listing_cover": "/listings/{id}/cover",
     "listing_audio_status": "/listings/{id}/audio-status",
     "listing_moderate": "/listings/{id}/moderate",
     "listing_submit": "/listings/{id}/submit-for-moderation",
-    # seller requests
     "seller_apply": "/auth/requests/me/request-seller",
     "admin_requests": "/auth/requests/seller",
     "admin_approve": "/auth/requests/{id}/approve",
-    # reviews
     "review": "/sellers/{id}/reviews",
 }
 
 
-# ─────────────── хелперы окружения ───────────────
 def docker_exec(container, *cmd, check=True):
     return subprocess.run(
         ["docker", "exec", container, *cmd],
@@ -84,6 +77,7 @@ class Api:
         headers = {"Authorization": f"Bearer {token}"} if token else {}
         self.c = httpx.Client(base_url=API, timeout=60, headers=headers)
         self.token = token
+        self._profile = None
 
     def get(self, path, **kw):
         return self.c.get(path.format(**kw.pop("fmt", {})), **kw)
@@ -96,8 +90,15 @@ class Api:
         fmt = kw.pop("fmt", {})
         return self.c.delete(path.format(**fmt), **kw)
 
+    @property
+    def profile(self):
+        if self._profile is None and self.token:
+            r = self.get(P["me"])
+            if r.status_code == 200:
+                self._profile = r.json()
+        return self._profile
 
-# ─────────────── auth ───────────────
+
 def new_credentials():
     return f"e2e-{uuid.uuid4().hex[:10]}@crate.market", PASSWORD
 
@@ -125,7 +126,6 @@ def register_login() -> Api:
     return login(email)
 
 
-# ─────────────── адреса / продавцы / лоты ───────────────
 def make_address(api: Api, apartment=None) -> dict:
     body = {
         "city": "Москва",
@@ -145,13 +145,9 @@ def make_address(api: Api, apartment=None) -> dict:
 def make_seller(with_apartment: bool = True) -> Api:
     user = register_login()
     make_address(user, apartment="12" if with_apartment else None)
-
     r = user.post(P["seller_apply"])
     assert r.status_code in (200, 201, 202), f"seller_apply: {r.status_code} {r.text}"
-
     approve_last_seller_request()
-
-    # после approve роль в БД обновилась, но JWT содержит старую роль — refresh
     r_refresh = user.post(P["refresh"])
     assert r_refresh.status_code == 200, f"refresh: {r_refresh.status_code} {r_refresh.text}"
     new_token = r_refresh.json().get("access_token")
@@ -172,11 +168,6 @@ def approve_last_seller_request():
 
 
 def make_listing(seller: Api, price: int = 1500) -> dict:
-    """Создаёт свободный листинг и доводит его до status=active.
-
-    Цепочка по бизнес-правилам marketplace-service:
-    create(draft) → обложка → has_audio → submit-for-moderation → approve.
-    """
     r = seller.post(
         P["listing_create"],
         json={
@@ -194,7 +185,6 @@ def make_listing(seller: Api, price: int = 1500) -> dict:
     listing = r.json()
 
     if listing.get("status") != "active":
-        # 1) обложка (multipart, поле "file")
         c = seller.post(
             P["listing_cover"],
             fmt={"id": listing["id"]},
@@ -202,7 +192,6 @@ def make_listing(seller: Api, price: int = 1500) -> dict:
         )
         assert c.status_code in (200, 201), f"cover upload: {c.status_code} {c.text}"
 
-        # 2) флаг наличия аудио (без реального файла)
         a = seller.post(
             P["listing_audio_status"],
             fmt={"id": listing["id"]},
@@ -210,11 +199,9 @@ def make_listing(seller: Api, price: int = 1500) -> dict:
         )
         assert a.status_code in (200, 201), f"audio-status: {a.status_code} {a.text}"
 
-        # 3) отправить на модерацию
         s = seller.post(P["listing_submit"], fmt={"id": listing["id"]})
         assert s.status_code in (200, 201), f"submit-for-moderation: {s.status_code} {s.text}"
 
-        # 4) approve админом
         admin = login(ADMIN_EMAIL, ADMIN_PASSWORD)
         m = admin.post(
             P["listing_moderate"],
@@ -231,7 +218,39 @@ def make_listing(seller: Api, price: int = 1500) -> dict:
     return listing
 
 
-# ─────────────── фикстуры ───────────────
+def build_checkout_payload(buyer: Api, items: list[dict], address_id: str, shipping: list[dict] = None) -> dict:
+    """Строит payload для POST /orders/checkout под реальную схему economy-service.
+
+    Требуемые поля (из 422 ошибки):
+    - buyer_id: str (из JWT)
+    - customer_email: str
+    - items[].listing_id, quantity, seller_price
+    """
+    profile = buyer.profile
+    assert profile, "не удалось получить профиль покупателя"
+    buyer_id = profile.get("id") or profile.get("user_id")
+    customer_email = profile.get("email")
+    assert buyer_id and customer_email, f"в профиле нет id/email: {profile}"
+
+    checkout_items = []
+    for item in items:
+        checkout_items.append({
+            "listing_id": item["listing_id"],
+            "quantity": item.get("quantity", 1),
+            "seller_price": item["seller_price"],
+        })
+
+    payload = {
+        "buyer_id": buyer_id,
+        "customer_email": customer_email,
+        "items": checkout_items,
+        "address_id": address_id,
+    }
+    if shipping:
+        payload["shipping"] = shipping
+    return payload
+
+
 @pytest.fixture()
 def buyer() -> Api:
     return register_login()
@@ -262,7 +281,6 @@ def gw_openapi() -> dict:
     try:
         r = docker_exec(GW_CONTAINER, "curl", "-s", "http://localhost:8000/openapi.json")
         import json
-
         return json.loads(r.stdout).get("paths", {})
     except Exception:
         return {}
