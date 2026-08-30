@@ -31,21 +31,25 @@ P = {
     "register": "/auth/register",
     "login": "/auth/login",
     "me": "/auth/me",
+    "refresh": "/auth/refresh",
     # addresses
     "addresses": "/addresses",
     "address_delete": "/addresses/{id}",
     # shipping
     "shipping_calculate": "/shipping/calculate",
     "shipping_points": "/shipping/points",
-    "handover": "/shipping/orders/{id}/dispatch",  # 🔑 dispatch вместо handover
+    "handover": "/shipping/orders/{id}/dispatch",
     # economy
     "checkout": "/orders/checkout",
     "order": "/orders/{id}",
     "payment_methods": "/orders/payment-methods",
     # listings
-    "listing_create": "/listings/free",  # 🔑 свободный листинг (FreeListingCreate)
+    "listing_create": "/listings/free",
+    "listing_get": "/listings/{id}",
+    "listing_moderate": "/listings/{id}/moderate",
+    "listing_submit": "/listings/{id}/submit-for-moderation",
     # seller requests
-    "seller_apply": "/auth/requests/me/request-seller",  # 🔑 без requestBody
+    "seller_apply": "/auth/requests/me/request-seller",
     "admin_requests": "/auth/requests/seller",
     "admin_approve": "/auth/requests/{id}/approve",
     # reviews
@@ -130,25 +134,19 @@ def make_address(api: Api, apartment=None) -> dict:
 
 
 def make_seller(with_apartment: bool = True) -> Api:
-    """Регистрирует пользователя, подаёт заявку продавца и активирует её через админа."""
     user = register_login()
-    # Создаем адрес (он понадобится для логистики)
     make_address(user, apartment="12" if with_apartment else None)
-    
-    # Подаем заявку БЕЗ тела (в openapi нет requestBody)
+
     r = user.post(P["seller_apply"])
     assert r.status_code in (200, 201, 202), f"seller_apply: {r.status_code} {r.text}"
-    
+
     approve_last_seller_request()
-    
-    # 🔑 КРИТИЧНО: после approve роль в БД обновилась, но JWT содержит старую роль "user"
-    # Делаем refresh для получения нового токена с ролью "seller"
-    r_refresh = user.post("/auth/refresh")
+
+    # после approve роль в БД обновилась, но JWT содержит старую роль — refresh
+    r_refresh = user.post(P["refresh"])
     assert r_refresh.status_code == 200, f"refresh: {r_refresh.status_code} {r_refresh.text}"
     new_token = r_refresh.json().get("access_token")
     assert new_token, f"refresh не вернул access_token: {r_refresh.text}"
-    
-    # Возвращаем Api с обновлённым токеном
     return Api(new_token)
 
 
@@ -165,14 +163,14 @@ def approve_last_seller_request():
 
 
 def make_listing(seller: Api, price: int = 1500) -> dict:
-    # 🔑 ИСПРАВЛЕНО: FreeListingCreate требует artist и year
+    # 🔑 ИСПРАВЛЕНО: condition из whitelist сервиса (Mint, Near Mint, VG+, VG, G, Poor)
     r = seller.post(
         P["listing_create"],
         json={
             "title": f"Vinyl E2E {uuid.uuid4().hex[:6]}",
             "artist": "E2E Artist",
             "year": 2024,
-            "condition": "M",
+            "condition": "Mint",
             "price": float(price),
             "description": "test pressing",
             "genre": "Rock",
@@ -180,7 +178,32 @@ def make_listing(seller: Api, price: int = 1500) -> dict:
         },
     )
     assert r.status_code in (200, 201), f"listing: {r.status_code} {r.text}"
-    return r.json()
+    listing = r.json()
+
+    # 🔑 Свободные листинги рождаются в draft — активируем через модерацию админом
+    if listing.get("status") != "active":
+        admin = login(ADMIN_EMAIL, ADMIN_PASSWORD)
+        m = admin.post(
+            P["listing_moderate"],
+            fmt={"id": listing["id"]},
+            json={"action": "approve"},
+        )
+        if m.status_code not in (200, 201):
+            # фолбэк: сначала отправить на модерацию, затем approve
+            s = seller.post(P["listing_submit"], fmt={"id": listing["id"]})
+            assert s.status_code in (200, 201), f"submit-for-moderation: {s.status_code} {s.text}"
+            m = admin.post(
+                P["listing_moderate"],
+                fmt={"id": listing["id"]},
+                json={"action": "approve"},
+            )
+        assert m.status_code in (200, 201), f"moderate: {m.status_code} {m.text}"
+        g = seller.get(P["listing_get"], fmt={"id": listing["id"]})
+        assert g.status_code == 200, f"listing_get: {g.status_code} {g.text}"
+        listing = g.json()
+
+    assert listing.get("status") == "active", f"listing не active: {listing.get('status')}"
+    return listing
 
 
 # ─────────────── фикстуры ───────────────
@@ -214,6 +237,7 @@ def gw_openapi() -> dict:
     try:
         r = docker_exec(GW_CONTAINER, "curl", "-s", "http://localhost:8000/openapi.json")
         import json
+
         return json.loads(r.stdout).get("paths", {})
     except Exception:
         return {}
