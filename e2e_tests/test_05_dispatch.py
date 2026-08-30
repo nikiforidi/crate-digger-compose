@@ -15,12 +15,32 @@ def _checkout_and_pay(buyer, listing):
     payload = build_checkout_payload(
         buyer,
         items=[{"listing_id": listing["id"], "seller_price": listing["price"]}],
-        shipping=make_shipping(addr["id"], point),  # один объект ShippingRequest
+        shipping=make_shipping(addr["id"], point),
     )
     r = buyer.post(P["checkout"], json=payload)
     assert r.status_code in (200, 201), f"checkout: {r.status_code} {r.text}"
     order_id = r.json().get("order_id") or r.json().get("id")
+    
+    # 🔑 ОТЛАДКА: проверяем, что shipping_address_id и carrier_code сохранились
+    shipping_addr = sql("economy_db", f"SELECT shipping_address_id FROM orders WHERE id='{order_id}'")
+    carrier = sql("economy_db", f"SELECT carrier_code FROM orders WHERE id='{order_id}'")
+    print(f"[DEBUG] order shipping_address_id={shipping_addr}, carrier_code={carrier}")
+    assert shipping_addr, "shipping_address_id пуст в заказе"
+    assert carrier, "carrier_code пуст в заказе"
+    
     simulate_payment(buyer, order_id)
+    
+    # 🔑 ОТЛАДКА: проверяем логи экономики
+    import subprocess
+    logs = subprocess.run(
+        ["docker", "compose", "--env-file", ".env.testing", "-f", "docker-compose.testing.yml", 
+         "logs", "economy-service", "--tail=100"],
+        capture_output=True, text=True
+    )
+    print("[DEBUG] economy-service logs (last 100 lines):")
+    print(logs.stdout)
+    print(logs.stderr)
+    
     return order_id
 
 
