@@ -7,6 +7,7 @@
 
 Все маршруты выверены по openapi-6.json из релиза gateway.
 """
+import base64
 import os
 import subprocess
 import uuid
@@ -25,6 +26,12 @@ ADMIN_PASSWORD = os.getenv("E2E_ADMIN_PASSWORD", "admin123")
 PASSWORD = "E2e!Passw0rd#2026"
 
 RUN_SLOW = os.getenv("E2E_RUN_SLOW", "") == "1"
+
+# 1x1 PNG для обложки листинга (валидный минимальный PNG)
+PNG_1X1 = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJ"
+    "AAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+)
 
 # ─────────────── маршруты (выверено по openapi) ───────────────
 P = {
@@ -46,6 +53,8 @@ P = {
     # listings
     "listing_create": "/listings/free",
     "listing_get": "/listings/{id}",
+    "listing_cover": "/listings/{id}/cover",
+    "listing_audio_status": "/listings/{id}/audio-status",
     "listing_moderate": "/listings/{id}/moderate",
     "listing_submit": "/listings/{id}/submit-for-moderation",
     # seller requests
@@ -163,7 +172,11 @@ def approve_last_seller_request():
 
 
 def make_listing(seller: Api, price: int = 1500) -> dict:
-    # 🔑 ИСПРАВЛЕНО: condition из whitelist сервиса (Mint, Near Mint, VG+, VG, G, Poor)
+    """Создаёт свободный листинг и доводит его до status=active.
+
+    Цепочка по бизнес-правилам marketplace-service:
+    create(draft) → обложка → has_audio → submit-for-moderation → approve.
+    """
     r = seller.post(
         P["listing_create"],
         json={
@@ -180,24 +193,36 @@ def make_listing(seller: Api, price: int = 1500) -> dict:
     assert r.status_code in (200, 201), f"listing: {r.status_code} {r.text}"
     listing = r.json()
 
-    # 🔑 Свободные листинги рождаются в draft — активируем через модерацию админом
     if listing.get("status") != "active":
+        # 1) обложка (multipart, поле "file")
+        c = seller.post(
+            P["listing_cover"],
+            fmt={"id": listing["id"]},
+            files={"file": ("cover.png", PNG_1X1, "image/png")},
+        )
+        assert c.status_code in (200, 201), f"cover upload: {c.status_code} {c.text}"
+
+        # 2) флаг наличия аудио (без реального файла)
+        a = seller.post(
+            P["listing_audio_status"],
+            fmt={"id": listing["id"]},
+            json={"has_audio": True},
+        )
+        assert a.status_code in (200, 201), f"audio-status: {a.status_code} {a.text}"
+
+        # 3) отправить на модерацию
+        s = seller.post(P["listing_submit"], fmt={"id": listing["id"]})
+        assert s.status_code in (200, 201), f"submit-for-moderation: {s.status_code} {s.text}"
+
+        # 4) approve админом
         admin = login(ADMIN_EMAIL, ADMIN_PASSWORD)
         m = admin.post(
             P["listing_moderate"],
             fmt={"id": listing["id"]},
             json={"action": "approve"},
         )
-        if m.status_code not in (200, 201):
-            # фолбэк: сначала отправить на модерацию, затем approve
-            s = seller.post(P["listing_submit"], fmt={"id": listing["id"]})
-            assert s.status_code in (200, 201), f"submit-for-moderation: {s.status_code} {s.text}"
-            m = admin.post(
-                P["listing_moderate"],
-                fmt={"id": listing["id"]},
-                json={"action": "approve"},
-            )
         assert m.status_code in (200, 201), f"moderate: {m.status_code} {m.text}"
+
         g = seller.get(P["listing_get"], fmt={"id": listing["id"]})
         assert g.status_code == 200, f"listing_get: {g.status_code} {g.text}"
         listing = g.json()
