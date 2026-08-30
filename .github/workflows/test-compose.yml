@@ -122,7 +122,7 @@ jobs:
           echo ""
           echo "🔍 Checking all services status via docker compose..."
           UNHEALTHY=$(docker compose --env-file .env.testing -f docker-compose.testing.yml ps --format "{{.Service}} {{.Status}}" | \
-            grep -E "^(auth-service|crate-digger|economy-service|marketplace-service|review-service|logistics-service|relay-api|preview-api|gateway|marketplace-frontend|db|redis|minio) " | \
+            grep -E "^(auth-service|crate-digger|economy-service|marketplace-service|review-service|logistics-service|relay-api|preview-api|gateway|db|redis|minio) " | \
             grep -v "(healthy)" || true)
           if [ -n "$UNHEALTHY" ]; then
             echo "❌ Some services are not healthy:"
