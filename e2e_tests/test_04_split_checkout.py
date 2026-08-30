@@ -1,7 +1,20 @@
-"""Сценарий 4 (ядро рефакторинга): сплит-корзина двух продавцов."""
+"""Сценарий 4 (ядро рефакторинга): сплит-корзина двух продавцов.
+
+Контракт:
+- чекаут принимает ОДИН объект shipping на заказ;
+- после оплаты экономика сама создаёт по одной строке shipping_orders на продавца.
+"""
 import json
 
-from conftest import P, build_checkout_payload, make_address, register_login, sql
+from conftest import (
+    P,
+    build_checkout_payload,
+    make_address,
+    make_shipping,
+    register_login,
+    simulate_payment,
+    sql,
+)
 
 
 def _pick_point(buyer, city="Москва"):
@@ -14,7 +27,7 @@ def _pick_point(buyer, city="Москва"):
 
 
 def test_calculate_only_pickup_without_apartment(listing_a, listing_b):
-    """Проверяем что ПВЗ доступен. Курьер возвращается API даже без квартиры — фронт фильтрует."""
+    """Без квартиры доступен только ПВЗ (фронт фильтрует курьера сам)."""
     buyer = register_login()
     addr = make_address(buyer, apartment=None)
     r = buyer.post(
@@ -39,28 +52,30 @@ def test_split_checkout_creates_two_shipments(listing_a, listing_b):
     payload = build_checkout_payload(
         buyer,
         items=[
-            {"listing_id": listing_a["id"], "quantity": 1, "seller_price": listing_a["price"]},
-            {"listing_id": listing_b["id"], "quantity": 1, "seller_price": listing_b["price"]},
+            {"listing_id": listing_a["id"], "seller_price": listing_a["price"]},
+            {"listing_id": listing_b["id"], "seller_price": listing_b["price"]},
         ],
-        address_id=addr["id"],
-        shipping=[
-            {"seller_id": listing_a["seller_id"], "method": "pickup", "point": point},
-            {"seller_id": listing_b["seller_id"], "method": "pickup", "point": point},
-        ],
+        shipping=make_shipping(addr["id"], point),
     )
 
     r = buyer.post(P["checkout"], json=payload)
     assert r.status_code in (200, 201), f"checkout: {r.status_code} {r.text}"
     order = r.json()
-    order_id = order.get("id") or order.get("order_id")
+    order_id = order.get("order_id") or order.get("id")
     assert order_id, f"нет order id в ответе: {order}"
 
+    # один заказ, две позиции
     assert sql("economy_db", f"SELECT count(*) FROM orders WHERE id='{order_id}'") == "1"
     assert sql("economy_db", f"SELECT count(*) FROM order_items WHERE order_id='{order_id}'") == "2"
-    assert sql("logistics_db", f"SELECT count(*) FROM shipping_orders WHERE order_id='{order_id}'") == "2"
 
-    snaps = sql(
+    # оплата (mock) → экономика сама создаёт отправки в логистике
+    simulate_payment(buyer, order_id)
+    assert sql("economy_db", f"SELECT status FROM orders WHERE id='{order_id}'") == "paid"
+
+    # ДВЕ строки shipping_orders с одним order_id (unique на order_id снят)
+    assert sql("logistics_db", f"SELECT count(*) FROM shipping_orders WHERE order_id='{order_id}'") == "2"
+    sellers = sql(
         "logistics_db",
-        f"SELECT count(*) FROM shipping_orders WHERE order_id='{order_id}' AND point_snapshot IS NOT NULL",
+        f"SELECT count(DISTINCT seller_id) FROM shipping_orders WHERE order_id='{order_id}'",
     )
-    assert snaps == "2", f"point_snapshot не заполнен: {snaps}"
+    assert sellers == "2", f"ожидали 2 разных продавцов, получили {sellers}"

@@ -1,11 +1,13 @@
 """E2E-тесты рефакторинга доставки.
 
-Запуск:
-    pip install -r e2e_tests/requirements.txt
-    pytest e2e_tests -v                     # быстрый набор
-    E2E_RUN_SLOW=1 pytest e2e_tests -v      # + авто-отмена 72h (долгий)
+Контракт (по реальному коду economy-service):
+- POST /orders/checkout принимает ОДИН объект `shipping` на весь заказ;
+- сплит по продавцам делает сама экономика после оплаты
+  (по одной строке shipping_orders на продавца).
 
-Все маршруты выверены по openapi-6.json из релиза gateway.
+Запуск:
+    pytest e2e_tests -v                     # быстрый набор
+    E2E_RUN_SLOW=1 pytest e2e_tests -v      # + авто-отмена 72h
 """
 import base64
 import os
@@ -20,6 +22,7 @@ API = f"{BASE_URL}/api/v1"
 
 DB_CONTAINER = os.getenv("E2E_DB_CONTAINER", "ci-db-1")
 GW_CONTAINER = os.getenv("E2E_GW_CONTAINER", "ci-gateway-1")
+ECONOMY_CONTAINER = os.getenv("E2E_ECONOMY_CONTAINER", "ci-economy-service-1")
 
 ADMIN_EMAIL = os.getenv("E2E_ADMIN_EMAIL", "admin@crate.market")
 ADMIN_PASSWORD = os.getenv("E2E_ADMIN_PASSWORD", "admin123")
@@ -33,33 +36,40 @@ PNG_1X1 = base64.b64decode(
     "AAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
 )
 
-# ─────────────── маршруты (выверено по openapi) ───────────────
+# ─────────────── маршруты (выверено по openapi gateway) ───────────────
 P = {
     "register": "/auth/register",
     "login": "/auth/login",
     "me": "/auth/me",
     "refresh": "/auth/refresh",
+    # адреса
     "addresses": "/addresses",
     "address_delete": "/addresses/{id}",
+    # логистика
     "shipping_calculate": "/shipping/calculate",
     "shipping_points": "/shipping/points",
     "handover": "/shipping/orders/{id}/dispatch",
+    # economy
     "checkout": "/orders/checkout",
     "order": "/orders/{id}",
-    "payment_methods": "/orders/payment-methods",
+    "payment_mock": "/payments/mock/simulate-payment",
+    # листинги
     "listing_create": "/listings/free",
     "listing_get": "/listings/{id}",
     "listing_cover": "/listings/{id}/cover",
     "listing_audio_status": "/listings/{id}/audio-status",
     "listing_moderate": "/listings/{id}/moderate",
     "listing_submit": "/listings/{id}/submit-for-moderation",
+    # продавцы
     "seller_apply": "/auth/requests/me/request-seller",
     "admin_requests": "/auth/requests/seller",
     "admin_approve": "/auth/requests/{id}/approve",
+    # отзывы
     "review": "/sellers/{id}/reviews",
 }
 
 
+# ─────────────── хелперы окружения ───────────────
 def docker_exec(container, *cmd, check=True):
     return subprocess.run(
         ["docker", "exec", container, *cmd],
@@ -69,6 +79,22 @@ def docker_exec(container, *cmd, check=True):
 
 def sql(db: str, query: str) -> str:
     r = docker_exec(DB_CONTAINER, "psql", "-U", "postgres", "-d", db, "-tAc", query)
+    return r.stdout.strip()
+
+
+def trigger_auto_cancel() -> str:
+    """Детерминированный запуск авто-отмены внутри контейнера экономики
+    (фоновый цикл спит 3600с, ждать его в тестах нереально)."""
+    script = (
+        "import asyncio\n"
+        "from app.database import AsyncSessionLocal\n"
+        "from app.jobs.auto_cancel import auto_cancel_unshipped\n"
+        "async def main():\n"
+        "    async with AsyncSessionLocal() as db:\n"
+        "        print(await auto_cancel_unshipped(db))\n"
+        "asyncio.run(main())\n"
+    )
+    r = docker_exec(ECONOMY_CONTAINER, "python", "-c", script)
     return r.stdout.strip()
 
 
@@ -99,6 +125,7 @@ class Api:
         return self._profile
 
 
+# ─────────────── auth ───────────────
 def new_credentials():
     return f"e2e-{uuid.uuid4().hex[:10]}@crate.market", PASSWORD
 
@@ -116,7 +143,7 @@ def login(email: str, password: str = PASSWORD) -> Api:
         r = a.post(P["login"], data={"username": email, "password": password})
     assert r.status_code == 200, f"login({email}): {r.status_code} {r.text}"
     token = r.json().get("access_token")
-    assert token, f"login({email}): нет access_token в ответе: {r.text}"
+    assert token, f"login({email}): нет access_token: {r.text}"
     return Api(token)
 
 
@@ -126,6 +153,7 @@ def register_login() -> Api:
     return login(email)
 
 
+# ─────────────── адреса / продавцы / листинги ───────────────
 def make_address(api: Api, apartment=None) -> dict:
     body = {
         "city": "Москва",
@@ -145,9 +173,13 @@ def make_address(api: Api, apartment=None) -> dict:
 def make_seller(with_apartment: bool = True) -> Api:
     user = register_login()
     make_address(user, apartment="12" if with_apartment else None)
+
     r = user.post(P["seller_apply"])
     assert r.status_code in (200, 201, 202), f"seller_apply: {r.status_code} {r.text}"
+
     approve_last_seller_request()
+
+    # после approve роль обновилась в БД — нужен свежий JWT
     r_refresh = user.post(P["refresh"])
     assert r_refresh.status_code == 200, f"refresh: {r_refresh.status_code} {r_refresh.text}"
     new_token = r_refresh.json().get("access_token")
@@ -218,61 +250,64 @@ def make_listing(seller: Api, price: int = 1500) -> dict:
     return listing
 
 
-def build_checkout_payload(buyer: Api, items: list[dict], address_id: str, shipping: list[dict] = None) -> dict:
-    """Строит payload для POST /orders/checkout."""
+# ─────────────── чекаут / оплата ───────────────
+def build_checkout_payload(buyer: Api, items: list[dict], shipping: dict | None = None) -> dict:
+    """Payload под реальную CheckoutRequest экономики:
+    {buyer_id, customer_email, items[], shipping?} — shipping один на заказ."""
     profile = buyer.profile
     if not profile:
         r = buyer.get(P["me"])
-        print(f"[DEBUG] /me status={r.status_code}, body={r.text}")
         assert r.status_code == 200, f"/me failed: {r.status_code} {r.text}"
         profile = r.json()
         buyer._profile = profile
-    
-    buyer_id = (
-        profile.get("id") 
-        or profile.get("user_id") 
-        or profile.get("sub") 
-        or profile.get("uuid")
-        or profile.get("user_uuid")
-        or profile.get("user_id_str")
-    )
-    customer_email = profile.get("email")
-    
-    assert buyer_id and customer_email, f"в профиле нет id/email: {profile}"
 
-    checkout_items = []
-    for item in items:
-        checkout_items.append({
-            "listing_id": item["listing_id"],
-            "quantity": item.get("quantity", 1),
-            "seller_price": item["seller_price"],
-        })
+    buyer_id = profile.get("id") or profile.get("user_id")
+    customer_email = profile.get("email")
+    assert buyer_id and customer_email, f"в профиле нет id/email: {profile}"
 
     payload = {
         "buyer_id": buyer_id,
         "customer_email": customer_email,
-        "items": checkout_items,
-        "address_id": address_id,
+        "items": [
+            {
+                "listing_id": item["listing_id"],
+                "seller_price": item["seller_price"],
+            }
+            for item in items
+        ],
     }
-    
-    # 🔑 ИСПРАВЛЕНО: если shipping не передан, строим его из items
-    if not shipping:
-        shipping = []
-        for item in items:
-            # Для каждого уникального seller_id добавляем запись shipping
-            seller_id = item.get("seller_id")
-            if seller_id and not any(s.get("seller_id") == seller_id for s in shipping):
-                shipping.append({
-                    "seller_id": seller_id,
-                    "method": "pickup",
-                    "point": {"id": 1, "name": "ПВЗ По умолчанию", "address": "Москва, ул. Тестовая, 1"},
-                })
-    
-    payload["shipping"] = shipping
-    
-    print(f"[DEBUG] final payload keys={list(payload.keys())}")
+    if shipping:
+        payload["shipping"] = shipping
     return payload
 
+
+def make_shipping(address_id: str, point: dict | None = None) -> dict:
+    """Один объект доставки на заказ (схема ShippingRequest экономики)."""
+    point = point or {}
+    return {
+        "address_id": address_id,
+        "carrier_code": point.get("provider_key", "apiship"),
+        "service_code": "pvz",
+        "shipping_cost": 350.0,
+        "tariff_id": point.get("tariff_id", 200),
+        "pickup_point_id": str(point.get("id", 407)),
+    }
+
+
+def simulate_payment(api: Api, order_id, success: bool = True) -> dict:
+    """Mock-оплата (ЮKassa в test-mode)."""
+    r = api.post(
+        P["payment_mock"],
+        params={"order_id": str(order_id), "success": str(success).lower()},
+    )
+    assert r.status_code == 200, f"simulate-payment: {r.status_code} {r.text}"
+    body = r.json()
+    expected = "paid" if success else "cancelled"
+    assert body.get("new_status") == expected, f"simulate-payment: {body}"
+    return body
+
+
+# ─────────────── фикстуры ───────────────
 @pytest.fixture()
 def buyer() -> Api:
     return register_login()
@@ -303,6 +338,7 @@ def gw_openapi() -> dict:
     try:
         r = docker_exec(GW_CONTAINER, "curl", "-s", "http://localhost:8000/openapi.json")
         import json
+
         return json.loads(r.stdout).get("paths", {})
     except Exception:
         return {}

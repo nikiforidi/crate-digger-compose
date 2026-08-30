@@ -1,48 +1,31 @@
-"""Сценарий 3: чекаут с продавцом без адреса отправления → 400.
+"""Сценарий 3: чекаут с проблемным продавцом → честный 400 от экономики.
 
-Economy проверяет ЮKassa раньше адреса, поэтому при отсутствии и того, и другого
-вернётся «продавец не настроил платежи» — это тоже честная бизнес-валидация 400.
+У тестовых продавцов нет настроенного приёма платежей
+(seller_yookassa_account пуст) — экономика отказывает в создании заказа.
+Проверка «продавец без адреса» на фронте делается через
+/shipping/calculate → unavailable_seller_ids (см. сценарий 4).
 """
 from conftest import P, build_checkout_payload, make_listing, make_seller, register_login
 
 
-def test_checkout_blocked_without_seller_address():
+def test_checkout_blocked_for_problem_seller():
     seller = make_seller(with_apartment=True)
     listing = make_listing(seller)
 
-    r = seller.get(P["addresses"])
-    assert r.status_code == 200
-    addrs = r.json()
-    addrs = addrs.get("items", addrs) if isinstance(addrs, dict) else addrs
-    for a in addrs:
-        rd = seller.delete(P["address_delete"], fmt={"id": a["id"]})
-        assert rd.status_code in (200, 204), rd.text
-
     buyer = register_login()
-    addr = buyer.post(
-        P["addresses"],
-        json={
-            "city": "Москва",
-            "street": "Арбат",
-            "house": "1",
-            "apartment": "5",
-            "recipient_name": "E2E Buyer",
-            "phone": "+7 999 111-11-11",
-            "latitude": 55.749,
-            "longitude": 37.585,
-        },
-    ).json()
-
     payload = build_checkout_payload(
         buyer,
-        # 🔑 ИСПРАВЛЕНО: добавляем seller_id для автогенерации shipping
-        items=[{"listing_id": listing["id"], "seller_id": listing["seller_id"], "quantity": 1, "seller_price": listing["price"]}],
-        address_id=addr["id"],
+        items=[
+            {
+                "listing_id": listing["id"],
+                "seller_price": listing["price"],
+            }
+        ],
     )
 
     r = buyer.post(P["checkout"], json=payload)
     assert r.status_code == 400, f"ожидали 400, получили {r.status_code}: {r.text}"
-    
+
     body = r.text.lower()
     assert any(
         needle in body
