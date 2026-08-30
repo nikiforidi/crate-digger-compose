@@ -4,6 +4,8 @@ services:
     image: ghcr.io/nikiforidi/api-gateway:${GATEWAY_VERSION}
     expose: ["8000"]
     env_file: .env.testing
+    environment:
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/3
     depends_on:
       auth-service: { condition: service_healthy }
       economy-service: { condition: service_healthy }
@@ -48,6 +50,10 @@ services:
     image: ghcr.io/nikiforidi/auth-service:${AUTH_VERSION}
     expose: ["8000"]
     env_file: .env.testing
+    environment:
+      # 🔑 КРИТИЧНО: без этого alembic и сервис идут на localhost
+      - DATABASE_URL=postgresql+asyncpg://postgres:${DB_PASSWORD}@db:5432/auth_db
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/1
     depends_on:
       db: { condition: service_healthy }
       db-init: { condition: service_completed_successfully }
@@ -66,6 +72,16 @@ services:
     image: ghcr.io/nikiforidi/crate-digger:${CRATE_VERSION}
     expose: ["8000"]
     env_file: .env.testing
+    environment:
+      - DATABASE_URL=postgresql+psycopg2://postgres:${DB_PASSWORD}@db:5432/crate_digger
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
+      - S3_ENDPOINT_URL=${S3_ENDPOINT_URL}
+      - S3_ACCESS_KEY=${S3_ACCESS_KEY}
+      - S3_SECRET_KEY=${S3_SECRET_KEY}
+      - S3_BUCKET_NAME=${S3_BUCKET_NAME}
+      - MINIO_PUBLIC_URL=http://minio:9000
+      - RELAY_SERVICE_URL=http://relay-api:8000
+      - PREVIEW_SERVICE_URL=http://preview-api:8000
     depends_on:
       db: { condition: service_healthy }
       redis: { condition: service_healthy }
@@ -84,6 +100,9 @@ services:
     image: ghcr.io/nikiforidi/economy-service:${ECONOMY_VERSION}
     expose: ["8000"]
     env_file: .env.testing
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://postgres:${DB_PASSWORD}@db:5432/economy_db
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/2
     depends_on:
       db: { condition: service_healthy }
       db-init: { condition: service_completed_successfully }
@@ -104,6 +123,15 @@ services:
     image: ghcr.io/nikiforidi/marketplace-service:${MARKETPLACE_VERSION}
     expose: ["8003"]
     env_file: .env.testing
+    environment:
+      - DATABASE_URL=postgresql://postgres:${DB_PASSWORD}@db:5432/marketplace_db
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/4
+      - MINIO_ENDPOINT=minio:9000
+      - MINIO_ACCESS_KEY=${S3_ACCESS_KEY}
+      - MINIO_SECRET_KEY=${S3_SECRET_KEY}
+      - MINIO_SECURE=false
+      - MINIO_PUBLIC_URL=http://minio:9000
+      - LISTINGS_BUCKET=marketplace-listings
     depends_on:
       db: { condition: service_healthy }
       db-init: { condition: service_completed_successfully }
@@ -125,6 +153,9 @@ services:
     image: ghcr.io/nikiforidi/review-service:${REVIEW_VERSION}
     expose: ["8000"]
     env_file: .env.testing
+    environment:
+      - DATABASE_URL=postgresql://postgres:${DB_PASSWORD}@db:5432/review_service
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
     depends_on:
       db: { condition: service_healthy }
       db-init: { condition: service_completed_successfully }
@@ -138,22 +169,29 @@ services:
       start_period: 30s
     restart: unless-stopped
 
-  # === Logistics Service (ApiShip) ===
+  # === Logistics (ApiShip) ===
   logistics-migrate:
     image: ghcr.io/nikiforidi/logistics-service:${LOGISTICS_VERSION:-latest}
     command: alembic upgrade head
     env_file: .env.testing
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://postgres:${DB_PASSWORD}@db:5432/logistics_db
     depends_on:
       db: { condition: service_healthy }
       db-init: { condition: service_completed_successfully }
     networks: [app-net]
     restart: "no"
 
-    # === Logistics Service (ApiShip) ===
   logistics-service:
     image: ghcr.io/nikiforidi/logistics-service:${LOGISTICS_VERSION}
     expose: ["8004"]
     env_file: .env.testing
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://postgres:${DB_PASSWORD}@db:5432/logistics_db
+      - ECONOMY_SERVICE_URL=http://economy-service:8000
+      - COURIER_PICKUP_FEE_RUB=${COURIER_PICKUP_FEE_RUB:-150}
+      - DEFAULT_WEIGHT_G=${DEFAULT_WEIGHT_G:-600}
+      - DEFAULT_SIZE_CM=${DEFAULT_SIZE_CM:-30}
     depends_on:
       db: { condition: service_healthy }
       db-init: { condition: service_completed_successfully }
@@ -172,6 +210,14 @@ services:
     image: ghcr.io/nikiforidi/ytb-audio-relay:${RELAY_VERSION}
     expose: ["8000"]
     env_file: .env.testing
+    environment:
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
+      - MINIO_ENDPOINT=minio:9000
+      - MINIO_ACCESS_KEY=${S3_ACCESS_KEY}
+      - MINIO_SECRET_KEY=${S3_SECRET_KEY}
+      - MINIO_SECURE=false
+      - MINIO_PUBLIC_URL=/minio
+      - MINIO_BUCKET=${S3_BUCKET_NAME}
     volumes:
       - ./sessions:/app/sessions
     depends_on:
@@ -190,6 +236,14 @@ services:
   relay-worker:
     image: ghcr.io/nikiforidi/ytb-audio-relay:${RELAY_VERSION}
     env_file: .env.testing
+    environment:
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
+      - MINIO_ENDPOINT=minio:9000
+      - MINIO_ACCESS_KEY=${S3_ACCESS_KEY}
+      - MINIO_SECRET_KEY=${S3_SECRET_KEY}
+      - MINIO_SECURE=false
+      - MINIO_PUBLIC_URL=/minio
+      - MINIO_BUCKET=${S3_BUCKET_NAME}
     volumes:
       - ./sessions:/app/sessions
     depends_on:
@@ -206,6 +260,16 @@ services:
     image: ghcr.io/nikiforidi/ytb-audio-preview:${PREVIEW_VERSION}
     expose: ["8000"]
     env_file: .env.testing
+    environment:
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/5
+      - MINIO_ENDPOINT=minio:9000
+      - MINIO_ACCESS_KEY=${S3_ACCESS_KEY}
+      - MINIO_SECRET_KEY=${S3_SECRET_KEY}
+      - MINIO_SECURE=false
+      - MINIO_PUBLIC_URL=/minio
+      - SOURCE_BUCKET=${S3_BUCKET_NAME}
+      - PREVIEW_BUCKET=ytb-audio-previews
+      - LISTING_BUCKET=listing-audio
     depends_on:
       redis: { condition: service_healthy }
       minio: { condition: service_healthy }
@@ -222,6 +286,16 @@ services:
   preview-worker:
     image: ghcr.io/nikiforidi/ytb-audio-preview:${PREVIEW_VERSION}
     env_file: .env.testing
+    environment:
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/5
+      - MINIO_ENDPOINT=minio:9000
+      - MINIO_ACCESS_KEY=${S3_ACCESS_KEY}
+      - MINIO_SECRET_KEY=${S3_SECRET_KEY}
+      - MINIO_SECURE=false
+      - MINIO_PUBLIC_URL=/minio
+      - SOURCE_BUCKET=${S3_BUCKET_NAME}
+      - PREVIEW_BUCKET=ytb-audio-previews
+      - LISTING_BUCKET=listing-audio
     depends_on:
       redis: { condition: service_healthy }
       minio: { condition: service_healthy }
@@ -230,7 +304,7 @@ services:
     restart: unless-stopped
     healthcheck:
       disable: true
-  
+
   # === Marketplace Frontend ===
   marketplace-frontend:
     image: ghcr.io/nikiforidi/marketplace-frontend:${FRONTEND_VERSION}
