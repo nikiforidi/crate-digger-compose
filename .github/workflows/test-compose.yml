@@ -92,7 +92,7 @@ jobs:
           done
           echo "✅ All migrations applied successfully!"
 
-            - name: Pull latest images
+      - name: Pull latest images
         run: |
           echo "🔄 Pulling latest images from GHCR..."
           docker compose --env-file .env.testing -f docker-compose.testing.yml pull
