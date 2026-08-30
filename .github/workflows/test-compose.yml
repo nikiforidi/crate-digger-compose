@@ -17,8 +17,10 @@ concurrency:
 jobs:
   test:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     env:
+      # 🔑 НОВОЕ: фиксированное имя проекта → предсказуемые имена контейнеров (ci-db-1, ci-gateway-1)
+      COMPOSE_PROJECT_NAME: ci
       API_ID: ${{ secrets.TG_API_ID }}
       API_HASH: ${{ secrets.TG_API_HASH }}
       PHONE: ${{ secrets.TG_PHONE }}
@@ -30,9 +32,7 @@ jobs:
       YOOKASSA_SECRET_KEY: ${{ secrets.YOOKASSA_SECRET_KEY }}
       INITIAL_ADMIN_EMAIL: ${{ secrets.INITIAL_ADMIN_EMAIL }}
       INTERNAL_SERVICE_TOKEN: ${{ secrets.INTERNAL_SERVICE_TOKEN }}
-      # 🔑 НОВОЕ: Переменные для фронтенда в тестовом окружении
       NEXT_PUBLIC_API_URL: http://localhost
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -59,7 +59,6 @@ jobs:
         run: |
           echo "🚀 Starting infrastructure services..."
           docker compose --env-file .env.testing -f docker-compose.testing.yml up -d db redis minio createbuckets db-init
-          
           echo "⏳ Waiting for PostgreSQL to be ready..."
           for i in {1..15}; do
             if docker compose --env-file .env.testing -f docker-compose.testing.yml exec -T db pg_isready -U postgres > /dev/null 2>&1; then
@@ -72,7 +71,6 @@ jobs:
             fi
             sleep 2
           done
-          
           echo "⏳ Waiting for db-init to complete..."
           for i in {1..10}; do
             if docker compose --env-file .env.testing -f docker-compose.testing.yml ps db-init | grep -q "Exit 0"; then
@@ -88,18 +86,10 @@ jobs:
           set -a
           source .env.testing
           set +a
-          echo "→ auth-service"
-          docker compose --env-file .env.testing -f docker-compose.testing.yml run --rm --no-deps auth-service alembic upgrade head
-          echo "→ crate-digger"
-          docker compose --env-file .env.testing -f docker-compose.testing.yml run --rm --no-deps crate-digger alembic upgrade head
-          echo "→ economy-service"
-          docker compose --env-file .env.testing -f docker-compose.testing.yml run --rm --no-deps economy-service alembic upgrade head
-          echo "→ marketplace-service"
-          docker compose --env-file .env.testing -f docker-compose.testing.yml run --rm --no-deps marketplace-service alembic upgrade head
-          echo "→ logistics-service"
-          docker compose --env-file .env.testing -f docker-compose.testing.yml run --rm --no-deps logistics-service alembic upgrade head
-          echo "→ review-service"
-          docker compose --env-file .env.testing -f docker-compose.testing.yml run --rm --no-deps review-service alembic upgrade head
+          for svc in auth-service crate-digger economy-service marketplace-service logistics-service review-service; do
+            echo "→ $svc"
+            docker compose --env-file .env.testing -f docker-compose.testing.yml run --rm --no-deps $svc alembic upgrade head
+          done
           echo "✅ All migrations applied successfully!"
 
       - name: Start Application Services
@@ -140,8 +130,42 @@ jobs:
             exit 1
           fi
           echo "✅ All services are healthy!"
-          docker compose --env-file .env.testing -f docker-compose.testing.yml ps --format "table {{.Service}}\t{{.Status}}" | \
-            grep -E "^(auth-service|crate-digger|economy-service|marketplace-service|review-service|logistics-service|relay-api|preview-api|gateway|marketplace-frontend|db|redis|minio) "
+
+      # ═══════════════════ 🔑 НОВОЕ: E2E-ТЕСТЫ ═══════════════════
+      - name: Install E2E test dependencies
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 -m pip install -r e2e_tests/requirements.txt
+
+      - name: Run E2E tests (core)
+        env:
+          E2E_BASE_URL: http://localhost
+          E2E_DB_CONTAINER: ci-db-1
+          E2E_GW_CONTAINER: ci-gateway-1
+          E2E_ADMIN_PASSWORD: admin123
+        run: |
+          python3 -m pytest e2e_tests -v --junitxml=e2e_report.xml
+
+      - name: Run E2E slow tests (autocancel 72h)
+        continue-on-error: true   # информативный шаг, не валит CI пока планировщик не стабилен
+        env:
+          E2E_BASE_URL: http://localhost
+          E2E_DB_CONTAINER: ci-db-1
+          E2E_GW_CONTAINER: ci-gateway-1
+          E2E_ADMIN_PASSWORD: admin123
+          E2E_RUN_SLOW: "1"
+        run: |
+          python3 -m pytest e2e_tests/test_07_autocancel_review.py -v --junitxml=e2e_slow_report.xml
+
+      - name: Upload E2E reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-pytest-reports
+          path: |
+            e2e_report.xml
+            e2e_slow_report.xml
+      # ═══════════════════════════════════════════════════════════
 
       - name: Debug on failure
         if: failure()

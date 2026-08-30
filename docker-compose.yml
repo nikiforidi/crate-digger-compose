@@ -83,6 +83,7 @@ services:
       - FRONTEND_URL=${FRONTEND_URL}
       - EMAIL_BACKEND=${EMAIL_BACKEND}
       - INITIAL_ADMIN_EMAIL=${INITIAL_ADMIN_EMAIL}
+      - INITIAL_ADMIN_PASSWORD=${INITIAL_ADMIN_PASSWORD:-}
       - LOG_LEVEL=${LOG_LEVEL}
     depends_on:
       db: { condition: service_healthy }
