@@ -1,3 +1,11 @@
+"""Сценарий 3: продавец без адреса отправления блокируется на этапе расчёта доставки.
+
+Проверка адресов продавцов делается в logistics через /shipping/calculate
+(возвращает unavailable_seller_ids). На самом чекауте economy такой проверки нет.
+"""
+from conftest import P, make_listing, make_seller, register_login
+
+
 def test_checkout_blocked_for_problem_seller():
     seller = make_seller(with_apartment=True)
     listing = make_listing(seller)
