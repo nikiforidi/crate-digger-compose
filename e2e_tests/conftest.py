@@ -219,17 +219,31 @@ def make_listing(seller: Api, price: int = 1500) -> dict:
 
 
 def build_checkout_payload(buyer: Api, items: list[dict], address_id: str, shipping: list[dict] = None) -> dict:
-    """Строит payload для POST /orders/checkout под реальную схему economy-service.
-
-    Требуемые поля (из 422 ошибки):
-    - buyer_id: str (из JWT)
-    - customer_email: str
-    - items[].listing_id, quantity, seller_price
-    """
+    """Строит payload для POST /orders/checkout под реальную схему economy-service."""
+    # Force fetch profile if not cached
     profile = buyer.profile
-    assert profile, "не удалось получить профиль покупателя"
-    buyer_id = profile.get("id") or profile.get("user_id")
+    if not profile:
+        r = buyer.get(P["me"])
+        print(f"[DEBUG] /me status={r.status_code}, body={r.text}")
+        assert r.status_code == 200, f"/me failed: {r.status_code} {r.text}"
+        profile = r.json()
+        buyer._profile = profile
+    
+    print(f"[DEBUG] profile={profile}")
+    
+    # Try multiple possible field names for user id
+    buyer_id = (
+        profile.get("id") 
+        or profile.get("user_id") 
+        or profile.get("sub") 
+        or profile.get("uuid")
+        or profile.get("user_uuid")
+        or profile.get("user_id_str")
+    )
     customer_email = profile.get("email")
+    
+    print(f"[DEBUG] extracted buyer_id={buyer_id}, customer_email={customer_email}")
+    
     assert buyer_id and customer_email, f"в профиле нет id/email: {profile}"
 
     checkout_items = []
@@ -248,8 +262,9 @@ def build_checkout_payload(buyer: Api, items: list[dict], address_id: str, shipp
     }
     if shipping:
         payload["shipping"] = shipping
+    
+    print(f"[DEBUG] final payload keys={list(payload.keys())}")
     return payload
-
 
 @pytest.fixture()
 def buyer() -> Api:

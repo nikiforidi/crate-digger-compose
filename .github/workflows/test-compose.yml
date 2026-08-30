@@ -144,7 +144,7 @@ jobs:
           E2E_GW_CONTAINER: ci-gateway-1
           E2E_ADMIN_PASSWORD: admin123
         run: |
-          python3 -m pytest e2e_tests -v --junitxml=e2e_report.xml
+          python3 -m pytest e2e_tests -v -s --junitxml=e2e_report.xml
 
       - name: Run E2E slow tests (autocancel 72h)
         continue-on-error: true   # информативный шаг, не валит CI пока планировщик не стабилен

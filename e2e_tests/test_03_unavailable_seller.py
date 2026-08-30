@@ -34,6 +34,7 @@ def test_checkout_blocked_without_seller_address():
         items=[{"listing_id": listing["id"], "quantity": 1, "seller_price": listing["price"]}],
         address_id=addr["id"],
     )
+    print(f"[TEST] payload={payload}")
 
     r = buyer.post(P["checkout"], json=payload)
     assert r.status_code == 400, f"ожидали 400, получили {r.status_code}: {r.text}"
