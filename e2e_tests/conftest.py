@@ -1,13 +1,10 @@
 """E2E-тесты рефакторинга доставки.
 
-Контракт (по реальному коду economy-service):
+Контракт (по реальной схеме economy-service):
 - POST /orders/checkout принимает ОДИН объект `shipping` на весь заказ;
+- address_id находится внутри shipping;
 - сплит по продавцам делает сама экономика после оплаты
   (по одной строке shipping_orders на продавца).
-
-Запуск:
-    pytest e2e_tests -v                     # быстрый набор
-    E2E_RUN_SLOW=1 pytest e2e_tests -v      # + авто-отмена 72h
 """
 import base64
 import os
@@ -30,46 +27,37 @@ PASSWORD = "E2e!Passw0rd#2026"
 
 RUN_SLOW = os.getenv("E2E_RUN_SLOW", "") == "1"
 
-# 1x1 PNG для обложки листинга
 PNG_1X1 = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJ"
     "AAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
 )
 
-# ─────────────── маршруты (выверено по openapi gateway) ───────────────
 P = {
     "register": "/auth/register",
     "login": "/auth/login",
     "me": "/auth/me",
     "refresh": "/auth/refresh",
-    # адреса
     "addresses": "/addresses",
     "address_delete": "/addresses/{id}",
-    # логистика
     "shipping_calculate": "/shipping/calculate",
     "shipping_points": "/shipping/points",
     "handover": "/shipping/orders/{id}/dispatch",
-    # economy
     "checkout": "/orders/checkout",
     "order": "/orders/{id}",
     "payment_mock": "/payments/mock/simulate-payment",
-    # листинги
     "listing_create": "/listings/free",
     "listing_get": "/listings/{id}",
     "listing_cover": "/listings/{id}/cover",
     "listing_audio_status": "/listings/{id}/audio-status",
     "listing_moderate": "/listings/{id}/moderate",
     "listing_submit": "/listings/{id}/submit-for-moderation",
-    # продавцы
     "seller_apply": "/auth/requests/me/request-seller",
     "admin_requests": "/auth/requests/seller",
     "admin_approve": "/auth/requests/{id}/approve",
-    # отзывы
     "review": "/sellers/{id}/reviews",
 }
 
 
-# ─────────────── хелперы окружения ───────────────
 def docker_exec(container, *cmd, check=True):
     return subprocess.run(
         ["docker", "exec", container, *cmd],
@@ -83,8 +71,6 @@ def sql(db: str, query: str) -> str:
 
 
 def trigger_auto_cancel() -> str:
-    """Детерминированный запуск авто-отмены внутри контейнера экономики
-    (фоновый цикл спит 3600с, ждать его в тестах нереально)."""
     script = (
         "import asyncio\n"
         "from app.database import AsyncSessionLocal\n"
@@ -125,7 +111,6 @@ class Api:
         return self._profile
 
 
-# ─────────────── auth ───────────────
 def new_credentials():
     return f"e2e-{uuid.uuid4().hex[:10]}@crate.market", PASSWORD
 
@@ -153,7 +138,6 @@ def register_login() -> Api:
     return login(email)
 
 
-# ─────────────── адреса / продавцы / листинги ───────────────
 def make_address(api: Api, apartment=None) -> dict:
     body = {
         "city": "Москва",
@@ -173,13 +157,9 @@ def make_address(api: Api, apartment=None) -> dict:
 def make_seller(with_apartment: bool = True) -> Api:
     user = register_login()
     make_address(user, apartment="12" if with_apartment else None)
-
     r = user.post(P["seller_apply"])
     assert r.status_code in (200, 201, 202), f"seller_apply: {r.status_code} {r.text}"
-
     approve_last_seller_request()
-
-    # после approve роль обновилась в БД — нужен свежий JWT
     r_refresh = user.post(P["refresh"])
     assert r_refresh.status_code == 200, f"refresh: {r_refresh.status_code} {r_refresh.text}"
     new_token = r_refresh.json().get("access_token")
@@ -250,10 +230,12 @@ def make_listing(seller: Api, price: int = 1500) -> dict:
     return listing
 
 
-# ─────────────── чекаут / оплата ───────────────
 def build_checkout_payload(buyer: Api, items: list[dict], shipping: dict | None = None) -> dict:
-    """Payload под реальную CheckoutRequest экономики:
-    {buyer_id, customer_email, items[], shipping?} — shipping один на заказ."""
+    """Payload под схему CheckoutRequest economy-service.
+    
+    shipping — ОДИН объект (address_id внутри), как ожидает economy.
+    Gateway синхронизирован со схемой economy.
+    """
     profile = buyer.profile
     if not profile:
         r = buyer.get(P["me"])
@@ -269,20 +251,17 @@ def build_checkout_payload(buyer: Api, items: list[dict], shipping: dict | None 
         "buyer_id": buyer_id,
         "customer_email": customer_email,
         "items": [
-            {
-                "listing_id": item["listing_id"],
-                "seller_price": item["seller_price"],
-            }
-            for item in items
+            {"listing_id": it["listing_id"], "seller_price": it["seller_price"]}
+            for it in items
         ],
     }
-    if shipping:
+    if shipping is not None:
         payload["shipping"] = shipping
     return payload
 
 
 def make_shipping(address_id: str, point: dict | None = None) -> dict:
-    """Один объект доставки на заказ (схема ShippingRequest экономики)."""
+    """Один объект ShippingRequest под схему economy-service."""
     point = point or {}
     return {
         "address_id": address_id,
@@ -290,12 +269,11 @@ def make_shipping(address_id: str, point: dict | None = None) -> dict:
         "service_code": "pvz",
         "shipping_cost": 350.0,
         "tariff_id": point.get("tariff_id", 200),
-        "pickup_point_id": str(point.get("id", 407)),
+        "pickup_point_id": str(point.get("id", 1)),
     }
 
 
 def simulate_payment(api: Api, order_id, success: bool = True) -> dict:
-    """Mock-оплата (ЮKassa в test-mode)."""
     r = api.post(
         P["payment_mock"],
         params={"order_id": str(order_id), "success": str(success).lower()},
@@ -307,7 +285,6 @@ def simulate_payment(api: Api, order_id, success: bool = True) -> dict:
     return body
 
 
-# ─────────────── фикстуры ───────────────
 @pytest.fixture()
 def buyer() -> Api:
     return register_login()
@@ -338,7 +315,6 @@ def gw_openapi() -> dict:
     try:
         r = docker_exec(GW_CONTAINER, "curl", "-s", "http://localhost:8000/openapi.json")
         import json
-
         return json.loads(r.stdout).get("paths", {})
     except Exception:
         return {}

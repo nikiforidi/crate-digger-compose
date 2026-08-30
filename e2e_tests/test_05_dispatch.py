@@ -1,12 +1,7 @@
-"""Сценарий 5: продавец сдаёт посылку → статус в логистике + dispatched_at в экономике."""
+"""Сценарий 5: продавец сдаёт посылку → dispatched_at в экономике."""
 from conftest import (
-    P,
-    build_checkout_payload,
-    make_address,
-    make_shipping,
-    register_login,
-    simulate_payment,
-    sql,
+    P, build_checkout_payload, make_address, make_shipping,
+    register_login, simulate_payment, sql,
 )
 
 
@@ -20,7 +15,7 @@ def _checkout_and_pay(buyer, listing):
     payload = build_checkout_payload(
         buyer,
         items=[{"listing_id": listing["id"], "seller_price": listing["price"]}],
-        shipping=make_shipping(addr["id"], point),
+        shipping=make_shipping(addr["id"], point),  # один объект ShippingRequest
     )
     r = buyer.post(P["checkout"], json=payload)
     assert r.status_code in (200, 201), f"checkout: {r.status_code} {r.text}"
@@ -39,13 +34,11 @@ def test_handover_sets_dispatched(seller_a, listing_a):
     )
     assert ship_id, "нет shipping_order после оплаты"
 
-    # продавец «относит в ПВЗ сам» (роут диспатча идёт по order_id экономики)
     r = seller_a.post(P["handover"], fmt={"id": order_id})
     assert r.status_code in (200, 201), f"dispatch: {r.status_code} {r.text}"
 
     st = sql("logistics_db", f"SELECT status FROM shipping_orders WHERE id='{ship_id}'")
     assert st in ("sent", "dispatched", "in_transit"), f"status={st}"
 
-    # экономика получила колбэк → dispatched_at проставлен, авто-отмена не сработает
     disp = sql("economy_db", f"SELECT dispatched_at IS NOT NULL FROM orders WHERE id='{order_id}'")
     assert disp == "t", "dispatched_at не проставлен"
