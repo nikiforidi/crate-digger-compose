@@ -6,9 +6,25 @@ import time
 
 import pytest
 
-from conftest import P, RUN_SLOW, make_address, register_login, sql
+from conftest import P, RUN_SLOW, register_login, sql
 
 pytestmark = pytest.mark.skipif(not RUN_SLOW, reason="E2E_RUN_SLOW=1 не задан")
+
+
+def make_address(api, apartment=None):
+    body = {
+        "city": "Москва",
+        "street": "Тверская",
+        "house": "7",
+        "apartment": apartment,
+        "recipient_name": "E2E User",
+        "phone": "+7 999 000-00-00",
+        "latitude": 55.760,
+        "longitude": 37.605,
+    }
+    r = api.post(P["addresses"], json=body)
+    assert r.status_code in (200, 201), f"address: {r.status_code} {r.text}"
+    return r.json()
 
 
 def test_autocancel_seller_fault_and_review(seller_a, listing_a):
@@ -30,7 +46,7 @@ def test_autocancel_seller_fault_and_review(seller_a, listing_a):
     # форсим возраст заказа > 72h
     sql("economy_db", f"UPDATE orders SET created_at = NOW() - INTERVAL '73 hours' WHERE id='{order_id}'")
 
-    # ждём планировщик авто-отмены (до 3 минут)
+    # ждём планировщик авто-отмены
     status = ""
     for _ in range(36):
         status = sql("economy_db", f"SELECT status FROM orders WHERE id='{order_id}'")

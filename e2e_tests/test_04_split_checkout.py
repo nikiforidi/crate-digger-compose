@@ -5,7 +5,23 @@
 """
 import json
 
-from conftest import P, make_address, register_login, sql
+from conftest import P, register_login, sql
+
+
+def make_address(api, apartment=None):
+    body = {
+        "city": "Москва",
+        "street": "Тверская",
+        "house": "7",
+        "apartment": apartment,
+        "recipient_name": "E2E User",
+        "phone": "+7 999 000-00-00",
+        "latitude": 55.760,
+        "longitude": 37.605,
+    }
+    r = api.post(P["addresses"], json=body)
+    assert r.status_code in (200, 201), f"address: {r.status_code} {r.text}"
+    return r.json()
 
 
 def _pick_point(buyer, city="Москва"):
@@ -71,7 +87,7 @@ def test_split_checkout_creates_two_shipments(listing_a, listing_b):
     assert sql("economy_db", f"SELECT count(*) FROM orders WHERE id='{order_id}'") == "1"
     assert sql("economy_db", f"SELECT count(*) FROM order_items WHERE order_id='{order_id}'") == "2"
 
-    # logistics: ДВЕ строки shipping_orders с одним order_id (unique снят)
+    # logistics: ДВЕ строки shipping_orders с одним order_id
     assert sql("logistics_db", f"SELECT count(*) FROM shipping_orders WHERE order_id='{order_id}'") == "2"
 
     # point_snapshot сохранён в обеих строках

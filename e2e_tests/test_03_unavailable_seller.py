@@ -7,7 +7,7 @@ def test_checkout_blocked_without_seller_address():
     seller = make_seller(with_apartment=True)
     listing = make_listing(seller)
 
-    # удаляем адрес отправления (endpoint из фронтового клиента)
+    # удаляем адрес отправления
     r = seller.get(P["addresses"])
     assert r.status_code == 200
     addrs = r.json()
@@ -20,8 +20,14 @@ def test_checkout_blocked_without_seller_address():
     addr = buyer.post(
         P["addresses"],
         json={
-            "city": "Москва", "street": "Арбат", "house": "1", "apartment": "5",
-            "latitude": 55.749, "longitude": 37.585, "address_string": "Москва, Арбат, 1",
+            "city": "Москва",
+            "street": "Арбат",
+            "house": "1",
+            "apartment": "5",
+            "recipient_name": "E2E Buyer",
+            "phone": "+7 999 111-11-11",
+            "latitude": 55.749,
+            "longitude": 37.585,
         },
     ).json()
 

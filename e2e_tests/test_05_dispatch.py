@@ -1,5 +1,21 @@
 """Сценарий 5: продавец сдаёт посылку → статус «Передана в доставку» + dispatched_at."""
-from conftest import P, make_address, register_login, sql
+from conftest import P, register_login, sql
+
+
+def make_address(api, apartment=None):
+    body = {
+        "city": "Москва",
+        "street": "Тверская",
+        "house": "7",
+        "apartment": apartment,
+        "recipient_name": "E2E User",
+        "phone": "+7 999 000-00-00",
+        "latitude": 55.760,
+        "longitude": 37.605,
+    }
+    r = api.post(P["addresses"], json=body)
+    assert r.status_code in (200, 201), f"address: {r.status_code} {r.text}"
+    return r.json()
 
 
 def _checkout_one(buyer, listing, seller_id):
@@ -36,6 +52,6 @@ def test_handover_sets_dispatched(seller_a, listing_a):
     st = sql("logistics_db", f"SELECT status FROM shipping_orders WHERE id='{ship_id}'")
     assert "hand" in st or "dispatch" in st or "transit" in st, f"status={st}"
 
-    # economy: dispatched_at проставлен → авто-отмена не тронет
+    # economy: dispatched_at проставлен
     disp = sql("economy_db", f"SELECT dispatched_at IS NOT NULL FROM orders WHERE id='{order_id}'")
     assert disp == "t", "dispatched_at не проставлен"
