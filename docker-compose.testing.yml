@@ -171,7 +171,7 @@ services:
 
   # === Logistics (ApiShip) ===
   logistics-migrate:
-    image: ghcr.io/nikiforidi/logistics-service:${LOGISTICS_VERSION:-latest}
+    image: ghcr.io/nikiforidi/logistics-service:${LOGISTICS_VERSION}
     command: alembic upgrade head
     env_file: .env.testing
     environment:
@@ -183,7 +183,7 @@ services:
     restart: "no"
 
   logistics-service:
-    image: ghcr.io/nikiforidi/logistics-service:${LOGISTICS_VERSION:-latest}
+    image: ghcr.io/nikiforidi/logistics-service:${LOGISTICS_VERSION}
     expose: ["8004"]
     env_file: .env.testing
     environment:
