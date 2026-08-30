@@ -122,9 +122,10 @@ def make_address(api: Api, apartment=None) -> dict:
         "street": "Тверская",
         "house": "7",
         "apartment": apartment,
+        "recipient_name": "E2E User",
+        "phone": "+7 999 000-00-00",
         "latitude": 55.760,
         "longitude": 37.605,
-        "address_string": "Москва, Тверская, 7",
     }
     r = api.post(P["addresses"], json=body)
     assert r.status_code in (200, 201), f"address: {r.status_code} {r.text}"
