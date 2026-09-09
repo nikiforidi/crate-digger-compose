@@ -17,18 +17,6 @@ def _pick_point(buyer, city="Москва"):
 
 
 def test_calculate_only_pickup_without_apartment(listing_a, listing_b):
-    def test_calculate_only_pickup_without_apartment(listing_a, listing_b):
-    # 🔑 ОТЛАДКА: проверяем адреса продавцов в логистике
-    seller_a_addr = sql("logistics_db", f"SELECT user_id FROM user_addresses WHERE user_id='{listing_a['seller_id']}' LIMIT 1")
-    seller_b_addr = sql("logistics_db", f"SELECT user_id FROM user_addresses WHERE user_id='{listing_b['seller_id']}' LIMIT 1")
-    all_user_ids = sql("logistics_db", "SELECT user_id FROM user_addresses ORDER BY user_id")
-    
-    print(f"[DEBUG] listing_a seller_id: {listing_a['seller_id']}")
-    print(f"[DEBUG] listing_b seller_id: {listing_b['seller_id']}")
-    print(f"[DEBUG] seller_a address in logistics (by seller_id): {seller_a_addr}")
-    print(f"[DEBUG] seller_b address in logistics (by seller_id): {seller_b_addr}")
-    print(f"[DEBUG] ALL user_ids in logistics user_addresses: {all_user_ids}")
-
     buyer = register_login()
     addr = make_address(buyer, apartment=None)
     r = buyer.post(
@@ -72,27 +60,9 @@ def test_split_checkout_creates_two_shipments(listing_a, listing_b):
     assert sql("economy_db", f"SELECT count(*) FROM orders WHERE id='{order_id}'") == "1"
     assert sql("economy_db", f"SELECT count(*) FROM order_items WHERE order_id='{order_id}'") == "2"
 
-    # 🔑 ОТЛАДКА: проверяем, что shipping_address_id и carrier_code сохранились
-    shipping_addr = sql("economy_db", f"SELECT shipping_address_id FROM orders WHERE id='{order_id}'")
-    carrier = sql("economy_db", f"SELECT carrier_code FROM orders WHERE id='{order_id}'")
-    print(f"[DEBUG] order shipping_address_id={shipping_addr}, carrier_code={carrier}")
-    assert shipping_addr, "shipping_address_id пуст в заказе"
-    assert carrier, "carrier_code пуст в заказе"
-
     # оплата → economy создаёт отправки (по одной на seller_id)
     simulate_payment(buyer, order_id)
     assert sql("economy_db", f"SELECT status FROM orders WHERE id='{order_id}'") == "paid"
-
-    # 🔑 ОТЛАДКА: проверяем логи экономики
-    import subprocess
-    logs = subprocess.run(
-        ["docker", "compose", "--env-file", ".env.testing", "-f", "docker-compose.testing.yml", 
-         "logs", "economy-service", "--tail=100"],
-        capture_output=True, text=True
-    )
-    print("[DEBUG] economy-service logs (last 100 lines):")
-    print(logs.stdout)
-    print(logs.stderr)
 
     ship_count = sql(
         "logistics_db",

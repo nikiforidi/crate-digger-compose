@@ -156,12 +156,6 @@ def make_address(api: Api, apartment=None) -> dict:
 
 def make_seller(with_apartment: bool = True) -> Api:
     user = register_login()
-    
-    # 🔑 ОТЛАДКА: выведем user_id из профиля
-    profile = user.profile or {}
-    user_id_from_profile = profile.get("id") or profile.get("user_id")
-    print(f"[DEBUG make_seller] user_id from /me: {user_id_from_profile}")
-    
     make_address(user, apartment="12" if with_apartment else None)
     r = user.post(P["seller_apply"])
     assert r.status_code in (200, 201, 202), f"seller_apply: {r.status_code} {r.text}"
@@ -185,6 +179,7 @@ def approve_last_seller_request():
     assert r2.status_code in (200, 201), f"admin_approve: {r2.status_code} {r2.text}"
 
 
+def make_listing(seller: Api, price: int = 1500) -> dict:
     r = seller.post(
         P["listing_create"],
         json={
@@ -200,9 +195,6 @@ def approve_last_seller_request():
     )
     assert r.status_code in (200, 201), f"listing: {r.status_code} {r.text}"
     listing = r.json()
-    
-    # 🔑 ОТЛАДКА: выведем seller_id из листинга
-    print(f"[DEBUG make_listing] listing seller_id: {listing.get('seller_id')}")
 
     if listing.get("status") != "active":
         c = seller.post(
@@ -239,11 +231,7 @@ def approve_last_seller_request():
 
 
 def build_checkout_payload(buyer: Api, items: list[dict], shipping: dict | None = None) -> dict:
-    """Payload под схему CheckoutRequest economy-service.
-    
-    shipping — ОДИН объект (address_id внутри), как ожидает economy.
-    Gateway синхронизирован со схемой economy.
-    """
+    """Payload под схему CheckoutRequest economy-service."""
     profile = buyer.profile
     if not profile:
         r = buyer.get(P["me"])

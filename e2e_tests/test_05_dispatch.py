@@ -20,40 +20,11 @@ def _checkout_and_pay(buyer, listing):
     r = buyer.post(P["checkout"], json=payload)
     assert r.status_code in (200, 201), f"checkout: {r.status_code} {r.text}"
     order_id = r.json().get("order_id") or r.json().get("id")
-    
-    # 🔑 ОТЛАДКА: проверяем, что shipping_address_id и carrier_code сохранились
-    shipping_addr = sql("economy_db", f"SELECT shipping_address_id FROM orders WHERE id='{order_id}'")
-    carrier = sql("economy_db", f"SELECT carrier_code FROM orders WHERE id='{order_id}'")
-    print(f"[DEBUG] order shipping_address_id={shipping_addr}, carrier_code={carrier}")
-    assert shipping_addr, "shipping_address_id пуст в заказе"
-    assert carrier, "carrier_code пуст в заказе"
-    
     simulate_payment(buyer, order_id)
-    
-    # 🔑 ОТЛАДКА: проверяем логи экономики
-    import subprocess
-    logs = subprocess.run(
-        ["docker", "compose", "--env-file", ".env.testing", "-f", "docker-compose.testing.yml", 
-         "logs", "economy-service", "--tail=100"],
-        capture_output=True, text=True
-    )
-    print("[DEBUG] economy-service logs (last 100 lines):")
-    print(logs.stdout)
-    print(logs.stderr)
-    
     return order_id
 
 
 def test_handover_sets_dispatched(seller_a, listing_a):
-    def test_handover_sets_dispatched(seller_a, listing_a):
-    # 🔑 ОТЛАДКА: проверяем адреса
-    seller_addr = sql("logistics_db", f"SELECT user_id FROM user_addresses WHERE user_id='{listing_a['seller_id']}' LIMIT 1")
-    all_user_ids = sql("logistics_db", "SELECT user_id FROM user_addresses ORDER BY user_id")
-    
-    print(f"[DEBUG] listing_a seller_id: {listing_a['seller_id']}")
-    print(f"[DEBUG] seller address in logistics (by seller_id): {seller_addr}")
-    print(f"[DEBUG] ALL user_ids in logistics user_addresses: {all_user_ids}")
-    
     buyer = register_login()
     order_id = _checkout_and_pay(buyer, listing_a)
 

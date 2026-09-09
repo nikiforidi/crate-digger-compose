@@ -1,8 +1,4 @@
-"""Сценарий 3: продавец без адреса отправления блокируется на этапе расчёта доставки.
-
-Проверка адресов продавцов делается в logistics через /shipping/calculate
-(возвращает unavailable_seller_ids). На самом чекауте economy такой проверки нет.
-"""
+"""Сценарий 3: продавец без адреса отправления блокируется на этапе расчёта доставки."""
 from conftest import P, make_listing, make_seller, register_login
 
 
@@ -12,23 +8,29 @@ def test_checkout_blocked_for_problem_seller():
 
     # удаляем адрес отправления
     r = seller.get(P["addresses"])
+    assert r.status_code == 200
     addrs = r.json()
     addrs = addrs.get("items", addrs) if isinstance(addrs, dict) else addrs
     for a in addrs:
-        seller.delete(P["address_delete"], fmt={"id": a["id"]})
+        rd = seller.delete(P["address_delete"], fmt={"id": a["id"]})
+        assert rd.status_code in (200, 204), rd.text
 
     buyer = register_login()
     addr = buyer.post(
         P["addresses"],
         json={
-            "city": "Москва", "street": "Арбат", "house": "1",
-            "apartment": "5", "recipient_name": "E2E Buyer",
+            "city": "Москва",
+            "street": "Арбат",
+            "house": "1",
+            "apartment": "5",
+            "recipient_name": "E2E Buyer",
             "phone": "+7 999 111-11-11",
-            "latitude": 55.749, "longitude": 37.585,
+            "latitude": 55.749,
+            "longitude": 37.585,
         },
     ).json()
 
-    # 🔑 ИСПРАВЛЕНО: sellers вместо seller_ids (реальный контракт логистики)
+    # проверяем через /shipping/calculate (реальный контракт логистики: sellers)
     r = buyer.post(
         P["shipping_calculate"],
         json={
@@ -40,7 +42,8 @@ def test_checkout_blocked_for_problem_seller():
         },
     )
     assert r.status_code == 200, r.text
-    unavailable = r.json().get("unavailable_seller_ids", [])
+    body = r.json()
+    unavailable = body.get("unavailable_seller_ids", [])
     assert listing["seller_id"] in unavailable, (
-        f"продавец без адреса должен попасть в unavailable_seller_ids, получили: {r.json()}"
+        f"продавец без адреса должен попасть в unavailable_seller_ids, получили: {body}"
     )
