@@ -17,6 +17,18 @@ def _pick_point(buyer, city="Москва"):
 
 
 def test_calculate_only_pickup_without_apartment(listing_a, listing_b):
+    def test_calculate_only_pickup_without_apartment(listing_a, listing_b):
+    # 🔑 ОТЛАДКА: проверяем адреса продавцов в логистике
+    seller_a_addr = sql("logistics_db", f"SELECT user_id FROM user_addresses WHERE user_id='{listing_a['seller_id']}' LIMIT 1")
+    seller_b_addr = sql("logistics_db", f"SELECT user_id FROM user_addresses WHERE user_id='{listing_b['seller_id']}' LIMIT 1")
+    all_user_ids = sql("logistics_db", "SELECT user_id FROM user_addresses ORDER BY user_id")
+    
+    print(f"[DEBUG] listing_a seller_id: {listing_a['seller_id']}")
+    print(f"[DEBUG] listing_b seller_id: {listing_b['seller_id']}")
+    print(f"[DEBUG] seller_a address in logistics (by seller_id): {seller_a_addr}")
+    print(f"[DEBUG] seller_b address in logistics (by seller_id): {seller_b_addr}")
+    print(f"[DEBUG] ALL user_ids in logistics user_addresses: {all_user_ids}")
+
     buyer = register_login()
     addr = make_address(buyer, apartment=None)
     r = buyer.post(

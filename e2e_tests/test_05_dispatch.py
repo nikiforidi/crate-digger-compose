@@ -45,6 +45,15 @@ def _checkout_and_pay(buyer, listing):
 
 
 def test_handover_sets_dispatched(seller_a, listing_a):
+    def test_handover_sets_dispatched(seller_a, listing_a):
+    # 🔑 ОТЛАДКА: проверяем адреса
+    seller_addr = sql("logistics_db", f"SELECT user_id FROM user_addresses WHERE user_id='{listing_a['seller_id']}' LIMIT 1")
+    all_user_ids = sql("logistics_db", "SELECT user_id FROM user_addresses ORDER BY user_id")
+    
+    print(f"[DEBUG] listing_a seller_id: {listing_a['seller_id']}")
+    print(f"[DEBUG] seller address in logistics (by seller_id): {seller_addr}")
+    print(f"[DEBUG] ALL user_ids in logistics user_addresses: {all_user_ids}")
+    
     buyer = register_login()
     order_id = _checkout_and_pay(buyer, listing_a)
 
