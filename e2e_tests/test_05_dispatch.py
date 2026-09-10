@@ -1,4 +1,4 @@
-"""Сценарий 5: продавец сдаёт посылку → dispatched_at в экономике."""
+"""Сценарий 5: продавец сдаёт посылку → статус в логистике + dispatched_at в экономике."""
 from conftest import (
     P, build_checkout_payload, make_address, make_shipping,
     register_login, simulate_payment, sql,
@@ -6,6 +6,13 @@ from conftest import (
 
 
 def _checkout_and_pay(buyer, listing):
+    # 🔑 ОТЛАДКА
+    addr_users = sql("logistics_db", "SELECT user_id FROM user_addresses ORDER BY user_id")
+    print(f"[DEBUG] ALL user_id in logistics.user_addresses:\n{addr_users}")
+    print(f"[DEBUG] listing seller_id: {listing['seller_id']}")
+    cnt = sql("logistics_db", f"SELECT count(*) FROM user_addresses WHERE user_id='{listing['seller_id']}'")
+    print(f"[DEBUG] addresses for seller (by exact seller_id): {cnt}")
+
     addr = make_address(buyer, apartment=None)
     r = buyer.get(P["shipping_points"], params={"provider_key": "apiship", "city": "Москва"})
     points = r.json()

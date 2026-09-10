@@ -17,6 +17,18 @@ def _pick_point(buyer, city="Москва"):
 
 
 def test_calculate_only_pickup_without_apartment(listing_a, listing_b):
+    # 🔑 ОТЛАДКА: что реально в логистике и совпадает ли с seller_id
+    all_addr_users = sql("logistics_db", "SELECT user_id FROM user_addresses ORDER BY user_id")
+    print(f"[DEBUG] ALL user_id in logistics.user_addresses:\n{all_addr_users}")
+    print(f"[DEBUG] listing_a seller_id: {listing_a['seller_id']}")
+    print(f"[DEBUG] listing_b seller_id: {listing_b['seller_id']}")
+    addr_count_a = sql("logistics_db", f"SELECT count(*) FROM user_addresses WHERE user_id='{listing_a['seller_id']}'")
+    addr_count_b = sql("logistics_db", f"SELECT count(*) FROM user_addresses WHERE user_id='{listing_b['seller_id']}'")
+    print(f"[DEBUG] addresses for seller_a (by exact seller_id): {addr_count_a}")
+    print(f"[DEBUG] addresses for seller_b (by exact seller_id): {addr_count_b}")
+    addr_count_a_low = sql("logistics_db", f"SELECT count(*) FROM user_addresses WHERE user_id=lower('{listing_a['seller_id']}')")
+    print(f"[DEBUG] addresses for seller_a (by lower seller_id): {addr_count_a_low}")
+
     buyer = register_login()
     addr = make_address(buyer, apartment=None)
     r = buyer.post(
@@ -64,10 +76,15 @@ def test_split_checkout_creates_two_shipments(listing_a, listing_b):
     simulate_payment(buyer, order_id)
     assert sql("economy_db", f"SELECT status FROM orders WHERE id='{order_id}'") == "paid"
 
+    # 🔑 ОТЛАДКА: смотрим, что economy отправила в логистику
     ship_count = sql(
         "logistics_db",
         f"SELECT count(*) FROM shipping_orders WHERE order_id='{order_id}'",
     )
+    print(f"[DEBUG] shipping_orders for order {order_id}: {ship_count}")
+    all_ship = sql("logistics_db", "SELECT order_id, seller_id, status FROM shipping_orders ORDER BY created_at DESC LIMIT 10")
+    print(f"[DEBUG] last shipping_orders:\n{all_ship}")
+
     assert ship_count == "2", f"ожидали 2 shipping_orders, получили {ship_count}"
     sellers = sql(
         "logistics_db",
