@@ -1,4 +1,4 @@
-"""Сценарий 5: продавец сдаёт посылку → статус в логистике + dispatched_at в экономике."""
+"""Сценарий 5: продавец сдаёт посылку → dispatched_at в экономике."""
 from conftest import (
     P, build_checkout_payload, make_address, make_shipping,
     register_login, simulate_payment, sql,
@@ -41,7 +41,12 @@ def test_handover_sets_dispatched(seller_a, listing_a):
     )
     assert ship_id, "нет shipping_order после оплаты"
 
-    r = seller_a.post(P["handover"], fmt={"id": order_id})
+    # 🔑 ИСПРАВЛЕНО: dispatch ожидает тело (DispatchIn), даже если оно пустое
+    r = seller_a.post(
+        P["handover"],
+        fmt={"id": order_id},
+        json={"tracking_number": "TEST-TRACK-123", "carrier_code": "apiship"},
+    )
     assert r.status_code in (200, 201), f"dispatch: {r.status_code} {r.text}"
 
     st = sql("logistics_db", f"SELECT status FROM shipping_orders WHERE id='{ship_id}'")
