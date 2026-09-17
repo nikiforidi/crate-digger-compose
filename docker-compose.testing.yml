@@ -379,7 +379,7 @@ services:
     restart: unless-stopped
 
   minio:
-    image: minio/minio:latest
+    image: quay.io/minio/minio:latest
     env_file: .env.testing
     command: server /data --console-address ":9001"
     volumes:
@@ -394,7 +394,7 @@ services:
     restart: unless-stopped
 
   createbuckets:
-    image: minio/mc:latest
+    image: quay.io/minio/minio:latest
     env_file: .env.testing
     restart: "no"
     depends_on:
