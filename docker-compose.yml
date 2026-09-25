@@ -571,7 +571,7 @@ services:
     restart: unless-stopped
 
   minio:
-    image: quay.io/minio/minio:latest
+    image: alpine/minio:latest-release
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: ${S3_ACCESS_KEY}
@@ -588,7 +588,7 @@ services:
     restart: unless-stopped
 
   createbuckets:
-    image: quay.io/minio/mc:latest
+    image: alpine/minio:latest-release
     restart: "no"
     depends_on:
       minio: { condition: service_healthy }
