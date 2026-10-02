@@ -297,31 +297,65 @@ jobs:
           target: /opt/waxey-stage
           strip_components: 0
 
+      - name: Full deploy to stagename: Deploy to Stage
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'  # ← ДЕПЛОЙ ЗАПУСКАЕТСЯ ТОЛЬКО ПРИ ПУШЕ ТЕГА
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  # ═══════════════════════════════════════════════════════
+  # ЭТАП 1: ТЕСТЫ (запускаются при создании тега)
+  # ═══════════════════════════════════════════════════════
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # ... (ваш существующий блок тестов без изменений) ...
+
+  # ═══════════════════════════════════════════════════════
+  # ЭТАП 2: ПОЛНЫЙ ДЕПЛОЙ НА STAGE (после зелёных тестов)
+  # ═══════════════════════════════════════════════════════
+  deploy-stage:
+    needs: test
+    if: needs.test.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: staging
+      url: https://stage.waxey.ru
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Copy deployment files to server
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.STAGE_HOST }}
+          username: ${{ secrets.STAGE_USER }}
+          key: ${{ secrets.STAGE_SSH_KEY }}
+          source: "docker-compose.stage.yml,nginx-stage.conf"
+          target: /opt/waxey-stage
+
       - name: Full deploy to stage
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.STAGE_HOST }}
           username: ${{ secrets.STAGE_USER }}
           key: ${{ secrets.STAGE_SSH_KEY }}
-          envs: GITHUB_SHA
+          envs: GITHUB_REF_NAME  # ← Передаем имя тега (например, v1.2.3)
           script: |
             cd /opt/waxey-stage
-            SHA_TAG="${GITHUB_SHA:0:7}"
-            echo "🚀 Полный деплой на stage → попытка SHA: $SHA_TAG"
             
-            echo "${{ secrets.GHCR_PAT }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
-            
-            # Проверяем, существует ли образ gateway с SHA-тегом
-            # Если нет — используем latest (fallback)
-            if docker manifest inspect ghcr.io/nikiforidi/api-gateway:${SHA_TAG} > /dev/null 2>&1; then
-              TAG="${SHA_TAG}"
-              echo "✅ Найден SHA-тег: $TAG"
-            else
-              TAG="latest"
-              echo "⚠️ SHA-тег $SHA_TAG не найден в GHCR, используем: $TAG"
-            fi
-            
-            # Обновляем .env.stage
+            # Используем имя тега как версию (убираем префикс 'v', если нужно, или оставляем как есть)
+            TAG="${GITHUB_REF_NAME}"
+            echo "🚀 Полный деплой на stage → $TAG"
+
+            # Обновляем версии в .env.stage на этот тег
             sed -i "s|^GATEWAY_VERSION=.*|GATEWAY_VERSION=${TAG}|" .env.stage
             sed -i "s|^AUTH_VERSION=.*|AUTH_VERSION=${TAG}|" .env.stage
             sed -i "s|^CRATE_VERSION=.*|CRATE_VERSION=${TAG}|" .env.stage
@@ -331,13 +365,14 @@ jobs:
             sed -i "s|^LOGISTICS_VERSION=.*|LOGISTICS_VERSION=${TAG}|" .env.stage
             sed -i "s|^RELAY_VERSION=.*|RELAY_VERSION=${TAG}|" .env.stage
             sed -i "s|^PREVIEW_VERSION=.*|PREVIEW_VERSION=${TAG}|" .env.stage
-            sed -i "s|^FRONTEND_VERSION=.*|FRONTEND_VERSION=stage-${TAG}|" .env.stage
-            
-            echo "📋 Версии в .env.stage:"
-            grep "_VERSION=" .env.stage
-            
+            sed -i "s|^FRONTEND_VERSION=.*|FRONTEND_VERSION=${TAG}-stage|" .env.stage # Для фронтенда используем stage-суффикс
+
+            echo "${{ secrets.GHCR_PAT }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
             docker compose --env-file .env.stage -f docker-compose.stage.yml down --remove-orphans
             docker compose --env-file .env.stage -f docker-compose.stage.yml pull
+            
+            # ... (остальной скрипт деплоя: ожидание БД, миграции, up -d, проверка health) ...
             
             echo "⏳ Поднимаем инфраструктуру..."
             docker compose --env-file .env.stage -f docker-compose.stage.yml up -d db redis minio db-init
