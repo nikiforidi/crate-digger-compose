@@ -383,7 +383,7 @@ services:
     env_file: .env.testing
     command: server /data --console-address ":9001"
     volumes:
-      - minio-data-test:/data
+      - minio-data:/data
     networks: [app-net]
     restart: unless-stopped
     # healthcheck убран
