@@ -280,13 +280,12 @@ jobs:
           host: ${{ secrets.STAGE_HOST }}
           username: ${{ secrets.STAGE_USER }}
           key: ${{ secrets.STAGE_SSH_KEY }}
-          envs: GITHUB_SHA
+          envs: GITHUB_SHA   # ← КРИТИЧНО: внутри with, без пробелов
           script: |
             cd /opt/waxey-stage
-            TAG="${DEPLOY_TAG:0:7}"       # ← Используем переданную переменную
-
+            TAG="${GITHUB_SHA:0:7}"
             echo "🚀 Полный деплой на stage → $TAG"
-
+            
             sed -i "s|^GATEWAY_VERSION=.*|GATEWAY_VERSION=${TAG}|" .env.stage
             sed -i "s|^AUTH_VERSION=.*|AUTH_VERSION=${TAG}|" .env.stage
             sed -i "s|^CRATE_VERSION=.*|CRATE_VERSION=${TAG}|" .env.stage
@@ -297,10 +296,50 @@ jobs:
             sed -i "s|^RELAY_VERSION=.*|RELAY_VERSION=${TAG}|" .env.stage
             sed -i "s|^PREVIEW_VERSION=.*|PREVIEW_VERSION=${TAG}|" .env.stage
             sed -i "s|^FRONTEND_VERSION=.*|FRONTEND_VERSION=${TAG}|" .env.stage
-
+            
             echo "${{ secrets.GHCR_PAT }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
-
-            # ... остальной скрипт без изменений
+            
+            docker compose --env-file .env.stage -f docker-compose.stage.yml down --remove-orphans
+            docker compose --env-file .env.stage -f docker-compose.stage.yml pull
+            docker compose --env-file .env.stage -f docker-compose.stage.yml up -d db redis minio db-init
+            
+            echo "⏳ Ожидаем PostgreSQL..."
+            for i in $(seq 1 30); do
+              if docker compose --env-file .env.stage -f docker-compose.stage.yml exec -T db pg_isready -U postgres > /dev/null 2>&1; then
+                echo "✅ PostgreSQL готов!"
+                break
+              fi
+              sleep 2
+            done
+            
+            echo "⏳ Ожидаем завершения db-init..."
+            for i in $(seq 1 10); do
+              if docker compose --env-file .env.stage -f docker-compose.stage.yml ps db-init | grep -q "Exit 0"; then
+                echo "✅ db-init завершён!"
+                break
+              fi
+              sleep 2
+            done
+            
+            echo "🗄️ Применяем миграции..."
+            for svc in auth-service crate-digger economy-service marketplace-service logistics-service review-service; do
+              echo "  → $svc"
+              docker compose --env-file .env.stage -f docker-compose.stage.yml run --rm --no-deps $svc alembic upgrade head
+            done
+            
+            docker compose --env-file .env.stage -f docker-compose.stage.yml up -d
+            
+            echo "⏳ Ожидаем сервисы..."
+            for i in $(seq 1 60); do
+              if curl -sf http://localhost/health > /dev/null; then
+                echo "✅ Stage готов!"
+                exit 0
+              fi
+              sleep 2
+            done
+            echo "❌ Сервисы не поднялись за 120 секунд"
+            docker compose --env-file .env.stage -f docker-compose.stage.yml ps
+            exit 1
 
       - name: Ensure SSL certificate
         uses: appleboy/ssh-action@v1.0.3
