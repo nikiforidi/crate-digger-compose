@@ -324,8 +324,12 @@ jobs:
               esac
               
               sed -i "s|^${ENV_KEY}=.*|${ENV_KEY}=${TAG}|" .env.stage
+           
+              # 1. Скачиваем новый образ
               docker compose --env-file .env.stage -f docker-compose.stage.yml pull "$SERVICE"
-              docker compose --env-file .env.stage -f docker-compose.stage.yml up -d --no-deps "$SERVICE"
+              
+              # 2. Принудительно пересоздаём контейнер из нового образа
+              docker compose --env-file .env.stage -f docker-compose.stage.yml up -d --force-recreate --no-deps "$SERVICE"
               
               # Миграции для сервисов с БД
               case "$SERVICE" in
@@ -359,7 +363,10 @@ jobs:
               grep "_VERSION=" .env.stage
               
               docker compose --env-file .env.stage -f docker-compose.stage.yml down --remove-orphans
+           
+              # Скачиваем все свежие образы
               docker compose --env-file .env.stage -f docker-compose.stage.yml pull
+
               
               echo "⏳ Поднимаем инфраструктуру..."
               docker compose --env-file .env.stage -f docker-compose.stage.yml up -d db redis minio db-init
@@ -388,8 +395,8 @@ jobs:
                 docker compose --env-file .env.stage -f docker-compose.stage.yml run --rm --no-deps $svc alembic upgrade head || echo "⚠️ Миграция $svc упала"
               done
               
-              echo "🚀 Поднимаем все сервисы..."
-              docker compose --env-file .env.stage -f docker-compose.stage.yml up -d
+              # Принудительно пересоздаем все контейнеры из свежих образов
+              docker compose --env-file .env.stage -f docker-compose.stage.yml up -d --force-recreate
               
               echo "⏳ Ожидаем сервисы (до 3 минут)..."
               for i in $(seq 1 90); do
