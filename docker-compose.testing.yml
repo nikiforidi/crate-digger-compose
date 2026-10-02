@@ -88,7 +88,7 @@ services:
     depends_on:
       db: { condition: service_healthy }
       redis: { condition: service_healthy }
-      minio: { condition: service_healthy }
+      minio: { condition: service_started }
     networks: [app-net]
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
@@ -141,7 +141,7 @@ services:
       db: { condition: service_healthy }
       db-init: { condition: service_completed_successfully }
       redis: { condition: service_healthy }
-      minio: { condition: service_healthy }
+      minio: { condition: service_started }
       crate-digger: { condition: service_healthy }
       auth-service: { condition: service_healthy }
     networks: [app-net]
@@ -231,7 +231,7 @@ services:
       - ./sessions:/app/sessions
     depends_on:
       redis: { condition: service_healthy }
-      minio: { condition: service_healthy }
+      minio: { condition: service_started }
     networks: [app-net]
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
@@ -258,7 +258,7 @@ services:
       - ./sessions:/app/sessions
     depends_on:
       redis: { condition: service_healthy }
-      minio: { condition: service_healthy }
+      minio: { condition: service_started }
     networks: [app-net]
     command: python -m arq worker.WorkerSettings
     restart: unless-stopped
@@ -283,7 +283,7 @@ services:
       - LISTING_BUCKET=listing-audio
     depends_on:
       redis: { condition: service_healthy }
-      minio: { condition: service_healthy }
+      minio: { condition: service_started }
     networks: [app-net]
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
@@ -310,7 +310,7 @@ services:
       - LISTING_BUCKET=listing-audio
     depends_on:
       redis: { condition: service_healthy }
-      minio: { condition: service_healthy }
+      minio: { condition: service_started }
     networks: [app-net]
     command: python -m arq worker.WorkerSettings
     restart: unless-stopped
@@ -381,39 +381,31 @@ services:
   minio:
     image: alpine/minio:latest-release
     env_file: .env.testing
-    environment:
-      - MINIO_ROOT_USER=${S3_ACCESS_KEY}
-      - MINIO_ROOT_PASSWORD=${S3_SECRET_KEY}
     command: server /data --console-address ":9001"
     volumes:
-      - minio-data:/data
+      - minio-data-test:/data
     networks: [app-net]
-    healthcheck:
-      test: ["CMD-SHELL", "mc alias set local http://localhost:9000 ${S3_ACCESS_KEY} ${S3_SECRET_KEY} > /dev/null 2>&1 && mc ls local > /dev/null 2>&1 || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
-      start_period: 10s
     restart: unless-stopped
+    # healthcheck убран
 
   createbuckets:
     image: alpine/minio:latest-release
     env_file: .env.testing
     restart: "no"
     depends_on:
-      minio: { condition: service_healthy }
+      - minio
     entrypoint: >
       /bin/sh -c "
-      /usr/bin/mc alias set myminio http://minio:9000 ${S3_ACCESS_KEY} ${S3_SECRET_KEY} &&
-      /usr/bin/mc mb --ignore-existing myminio/${S3_BUCKET_NAME} &&
-      /usr/bin/mc mb --ignore-existing myminio/ytb-audio-previews &&
-      /usr/bin/mc mb --ignore-existing myminio/marketplace-listings &&
-      /usr/bin/mc mb --ignore-existing myminio/listing-audio &&
-      /usr/bin/mc anonymous set public myminio/${S3_BUCKET_NAME} &&
-      /usr/bin/mc anonymous set public myminio/ytb-audio-previews &&
-      /usr/bin/mc anonymous set public myminio/marketplace-listings &&
-      /usr/bin/mc anonymous set public myminio/listing-audio;
-      exit 0
+        /usr/bin/mc alias set myminio http://minio:9000 ${S3_ACCESS_KEY} ${S3_SECRET_KEY} &&
+        /usr/bin/mc mb --ignore-existing myminio/${S3_BUCKET_NAME} &&
+        /usr/bin/mc mb --ignore-existing myminio/ytb-audio-previews &&
+        /usr/bin/mc mb --ignore-existing myminio/marketplace-listings &&
+        /usr/bin/mc mb --ignore-existing myminio/listing-audio &&
+        /usr/bin/mc anonymous set public myminio/${S3_BUCKET_NAME} &&
+        /usr/bin/mc anonymous set public myminio/ytb-audio-previews &&
+        /usr/bin/mc anonymous set public myminio/marketplace-listings &&
+        /usr/bin/mc anonymous set public myminio/listing-audio;
+        exit 0
       "
     networks: [app-net]
 
