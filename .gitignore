@@ -10,3 +10,4 @@ env.txt
 .gitignore
 crate-digger-compose.md
 collect_to_markdown.py
+nginx.conf.txt
