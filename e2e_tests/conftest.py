@@ -156,9 +156,10 @@ def make_address(api: Api, apartment=None) -> dict:
 
 def make_seller(with_apartment: bool = True) -> Api:
     user = register_login()
-    r = user.post(P["seller_apply"])
+    r = user.post(P["seller_apply"], json={})  # ← ДОБАВЛЕНО: json={}
     assert r.status_code in (200, 201, 202), f"seller_apply: {r.status_code} {r.text}"
     approve_last_seller_request()
+    # ... остальной код без изменений
     
     # 🔑 ИСПРАВЛЕНО: сначала обновляем токен, чтобы получить правильный user_id
     r_refresh = user.post(P["refresh"])
