@@ -134,18 +134,32 @@ jobs:
 
       - name: Wait for API readiness
         run: |
-          echo "Waiting for APIs to become ready..."
+          echo "⏳ Waiting for APIs to become ready..."
           for i in {1..30}; do
-            if curl -sf http://localhost/health > /dev/null; then
-              echo "✅ All APIs are ready!"
-              exit 0
+            if docker compose --env-file .env.testing -f docker-compose.testing.yml exec -T gateway python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" > /dev/null 2>&1; then
+              echo "✅ Gateway is ready!"
+              break
+            fi
+            if [ $i -eq 30 ]; then
+              echo "❌ Gateway failed to become ready in 60 seconds"
+              docker compose --env-file .env.testing -f docker-compose.testing.yml logs gateway --tail=50
+              exit 1
             fi
             sleep 2
           done
-          echo "❌ APIs failed to become ready in 60 seconds"
-          docker compose --env-file .env.testing -f docker-compose.testing.yml ps
-          docker compose --env-file .env.testing -f docker-compose.testing.yml logs auth-service
-          exit 1
+
+          # Проверка остальных сервисов
+          echo "⏳ Waiting for backend services..."
+          for svc in auth-service crate-digger economy-service marketplace-service review-service logistics-service relay-api preview-api; do
+            for i in {1..15}; do
+              if docker compose --env-file .env.testing -f docker-compose.testing.yml exec -T $svc python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" > /dev/null 2>&1; then
+                echo "✅ $svc ready"
+                break
+              fi
+              sleep 2
+            done
+          done
+          echo "✅ All APIs are ready!"
 
       - name: Init MinIO buckets
         run: docker compose --env-file .env.testing -f docker-compose.testing.yml run --rm createbuckets

@@ -4,6 +4,8 @@ services:
     image: ghcr.io/nikiforidi/api-gateway:${GATEWAY_VERSION}
     pull_policy: always
     expose: ["8000"]
+    ports:
+      - "8000:8000"
     env_file: .env.testing
     environment:
       - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/3
@@ -26,25 +28,7 @@ services:
       start_period: 20s
     restart: unless-stopped
 
-  # === Prometheus ===
-  prometheus:
-    image: prom/prometheus:latest
-    ports: ["9090:9090"]
-    volumes:
-      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
-      - prometheus-data:/prometheus
-    networks: [app-net]
-    restart: unless-stopped
 
-  # === Nginx ===
-  nginx:
-    image: nginx:alpine
-    ports: ["${GATEWAY_PORT}:80"]
-    volumes: ["./nginx.conf:/etc/nginx/nginx.conf:ro"]
-    depends_on:
-      gateway: { condition: service_healthy }
-    networks: [app-net]
-    restart: unless-stopped
 
   # === Auth Service ===
   auth-service:
@@ -413,7 +397,7 @@ volumes:
   postgres-data:
   redis-data:
   minio-data:
-  prometheus-data:
+
 
 networks:
   app-net:
