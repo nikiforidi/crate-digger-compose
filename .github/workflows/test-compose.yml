@@ -371,13 +371,19 @@ jobs:
             
             echo "⏳ Ожидаем сервисы (до 3 минут)..."
             for i in $(seq 1 90); do
-              if curl -sf http://localhost:8000/health > /dev/null; then
-                echo "✅ Stage готов на порту 8000!"
-                break
+              # Проверяем gateway ВНУТРИ Docker-сети через exec
+              if docker compose --env-file .env.stage -f docker-compose.stage.yml exec -T gateway curl -sf http://localhost:8000/health > /dev/null 2>&1; then
+                echo "✅ Gateway готов внутри Docker-сети!"
+                # Дополнительно проверяем nginx снаружи через порт 80
+                if curl -sf http://localhost/health > /dev/null 2>&1; then
+                  echo "✅ Nginx готов и отдаёт health!"
+                  exit 0
+                fi
               fi
               if [ $i -eq 90 ]; then
                 echo "❌ Сервисы не поднялись за 180 секунд"
                 docker compose --env-file .env.stage -f docker-compose.stage.yml ps
+                docker compose --env-file .env.stage -f docker-compose.stage.yml logs nginx --tail=30
                 docker compose --env-file .env.stage -f docker-compose.stage.yml logs gateway --tail=30
                 exit 1
               fi
