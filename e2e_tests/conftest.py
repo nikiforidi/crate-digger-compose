@@ -156,21 +156,25 @@ def make_address(api: Api, apartment=None) -> dict:
 
 def make_seller(with_apartment: bool = True) -> Api:
     user = register_login()
-    r = user.post(P["seller_apply"], json={})  # ← ДОБАВЛЕНО: json={}
+    # 🔑 ИСПРАВЛЕНО: endpoint требует ИНН для заявки продавца
+    r = user.post(
+        P["seller_apply"],
+        json={
+            "inn": f"1234567890{str(uuid.uuid4().int)[:2]}",  # 12-значный ИНН физлица/ИП
+        }
+    )
     assert r.status_code in (200, 201, 202), f"seller_apply: {r.status_code} {r.text}"
     approve_last_seller_request()
-    # ... остальной код без изменений
     
     # 🔑 ИСПРАВЛЕНО: сначала обновляем токен, чтобы получить правильный user_id
     r_refresh = user.post(P["refresh"])
     assert r_refresh.status_code == 200, f"refresh: {r_refresh.status_code} {r_refresh.text}"
     new_token = r_refresh.json().get("access_token")
     assert new_token, f"refresh не вернул access_token: {r_refresh.text}"
-    user = Api(new_token)  # 🔑 ИСПРАВЛЕНО: используем новый токен с правильным user_id
+    user = Api(new_token)
     
     # Теперь создаём адрес с правильным user_id (после refresh)
     make_address(user, apartment="12" if with_apartment else None)
-    
     return user
 
 
