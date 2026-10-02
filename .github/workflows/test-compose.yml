@@ -276,12 +276,11 @@ jobs:
 
       - name: Full deploy to stage
         uses: appleboy/ssh-action@v1.0.3
-        envs:
-          DEPLOY_TAG: ${{ github.sha }}   # ← Передаём SHA внутрь SSH
         with:
           host: ${{ secrets.STAGE_HOST }}
           username: ${{ secrets.STAGE_USER }}
           key: ${{ secrets.STAGE_SSH_KEY }}
+          envs: GITHUB_SHA
           script: |
             cd /opt/waxey-stage
             TAG="${DEPLOY_TAG:0:7}"       # ← Используем переданную переменную
@@ -341,12 +340,11 @@ jobs:
     steps:
       - name: Deploy single service
         uses: appleboy/ssh-action@v1.0.3
-        envs:
-          DEPLOY_TAG: ${{ github.sha }}   # ← Передаём SHA внутрь SSH
         with:
           host: ${{ secrets.STAGE_HOST }}
           username: ${{ secrets.STAGE_USER }}
           key: ${{ secrets.STAGE_SSH_KEY }}
+          envs: GITHUB_SHA
           script: |
             cd /opt/waxey-stage
             SERVICE="${{ github.event.inputs.service }}"
