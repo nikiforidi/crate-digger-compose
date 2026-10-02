@@ -490,11 +490,10 @@ jobs:
             esac
 
             sed -i "s|^${ENV_KEY}=.*|${ENV_KEY}=${TAG}|" .env.stage
-            
             echo "${{ secrets.GHCR_PAT }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
             
             docker compose --env-file .env.stage -f docker-compose.stage.yml pull "$SERVICE"
-            docker compose --env-file .env.stage -f docker-compose.stage.yml up -d --no-deps "$SERVICE"
+            docker compose --env-file .env.stage -f docker-compose.stage.yml up -d --force-recreate --no-deps "$SERVICE"
             
             case "$SERVICE" in
               auth-service|crate-digger|economy-service|marketplace-service|logistics-service|review-service)
