@@ -334,7 +334,6 @@ services:
     depends_on:
       redis: { condition: service_healthy }
       minio: { condition: service_healthy }
-      createbuckets: { condition: service_completed_successfully }
     networks: [app-net]
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
@@ -362,7 +361,6 @@ services:
     depends_on:
       redis: { condition: service_healthy }
       minio: { condition: service_healthy }
-      createbuckets: { condition: service_completed_successfully }
     networks: [app-net]
     command: python -m arq worker.WorkerSettings
     restart: unless-stopped
