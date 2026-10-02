@@ -79,6 +79,12 @@ jobs:
             exit 1
           fi
 
+      - name: Clean Docker credentials
+        run: |
+          echo "🧹 Cleaning Docker config to avoid unauthorized pull..."
+          rm -f ~/.docker/config.json
+          echo "✅ Docker config cleaned"
+
       - name: Start Infrastructure Only (DB, Redis, MinIO)
         run: |
           echo "🚀 Starting infrastructure services..."
