@@ -348,7 +348,8 @@ jobs:
               sed -i "s|^LOGISTICS_VERSION=.*|LOGISTICS_VERSION=latest|" .env.stage
               sed -i "s|^RELAY_VERSION=.*|RELAY_VERSION=latest|" .env.stage
               sed -i "s|^PREVIEW_VERSION=.*|PREVIEW_VERSION=latest|" .env.stage
-              sed -i "s|^FRONTEND_VERSION=.*|FRONTEND_VERSION=latest|" .env.stage
+              # Фронтенд ВСЕГДА должен использовать stage-образ на стейдже, даже при полном деплое
+              sed -i "s|^FRONTEND_VERSION=.*|FRONTEND_VERSION=stage-latest|" .env.stage
               
               echo "📋 Версии в .env.stage:"
               grep "_VERSION=" .env.stage
