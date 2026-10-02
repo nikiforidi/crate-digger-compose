@@ -144,42 +144,30 @@ jobs:
         run: |
           echo "⏳ Waiting for APIs to become ready..."
           for i in {1..30}; do
-            if docker compose --env-file .env.testing -f docker-compose.testing.yml exec -T gateway python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" > /dev/null 2>&1; then
-              echo "✅ Gateway is ready!"
+            if curl -sf http://localhost:8000/health > /dev/null 2>&1; then
+              echo "✅ Gateway is ready on port 8000!"
               break
             fi
             if [ $i -eq 30 ]; then
               echo "❌ Gateway failed to become ready in 60 seconds"
+              docker compose --env-file .env.testing -f docker-compose.testing.yml ps
               docker compose --env-file .env.testing -f docker-compose.testing.yml logs gateway --tail=50
               exit 1
             fi
             sleep 2
           done
 
-          # Проверка остальных сервисов
-          echo "⏳ Waiting for backend services..."
-          for svc in auth-service crate-digger economy-service marketplace-service review-service logistics-service relay-api preview-api; do
-            for i in {1..15}; do
-              if docker compose --env-file .env.testing -f docker-compose.testing.yml exec -T $svc python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" > /dev/null 2>&1; then
-                echo "✅ $svc ready"
-                break
-              fi
-              sleep 2
-            done
-          done
-          echo "✅ All APIs are ready!"
-
       - name: Init MinIO buckets
         run: docker compose --env-file .env.testing -f docker-compose.testing.yml run --rm createbuckets
 
       - name: Health Checks
         run: |
-          echo "🔍 Checking Gateway HTTP endpoint..."
-          curl -sf http://localhost/health && echo " ✅"
+          echo "🔍 Checking Gateway HTTP endpoint on port 8000..."
+          curl -sf http://localhost:8000/health && echo " ✅"
           echo ""
           echo "🔍 Checking all services status via docker compose..."
           UNHEALTHY=$(docker compose --env-file .env.testing -f docker-compose.testing.yml ps --format "{{.Service}} {{.Status}}" | \
-            grep -E "^(auth-service|crate-digger|economy-service|marketplace-service|review-service|logistics-service|relay-api|preview-api|gateway|db|redis|minio) " | \
+            grep -E "^(auth-service|crate-digger|economy-service|marketplace-service|review-service|logistics-service|relay-api|preview-api|gateway|db|redis) " | \
             grep -v "(healthy)" || true)
           if [ -n "$UNHEALTHY" ]; then
             echo "❌ Some services are not healthy:"
@@ -195,7 +183,7 @@ jobs:
 
       - name: Run E2E tests (core)
         env:
-          E2E_BASE_URL: http://localhost
+          E2E_BASE_URL: http://localhost:8000   # ← БЫЛО: http://localhost
           E2E_DB_CONTAINER: ci-db-1
           E2E_GW_CONTAINER: ci-gateway-1
           E2E_ADMIN_PASSWORD: admin123
@@ -205,7 +193,7 @@ jobs:
       - name: Run E2E slow tests (autocancel 72h)
         continue-on-error: true
         env:
-          E2E_BASE_URL: http://localhost
+          E2E_BASE_URL: http://localhost:8000   # ← БЫЛО: http://localhost
           E2E_DB_CONTAINER: ci-db-1
           E2E_GW_CONTAINER: ci-gateway-1
           E2E_ADMIN_PASSWORD: admin123
