@@ -220,6 +220,9 @@ jobs:
           echo "📦 Container Status:"
           docker compose --env-file .env.testing -f docker-compose.testing.yml ps -a
           echo ""
+          echo "📜 MinIO Logs (ПОЧЕМУ ПАДАЕТ):"
+          docker compose --env-file .env.testing -f docker-compose.testing.yml logs minio --tail=100
+          echo ""
           echo "📜 Review Service Logs:"
           docker compose --env-file .env.testing -f docker-compose.testing.yml logs review-service --tail=100
           echo ""
