@@ -5,7 +5,11 @@ on:
   push:
     branches: [main]
   
-  # 🔑 Repository dispatch от marketplace-frontend → тесты + точечный деплой фронтенда
+  # 🔑 Pull request → только тесты
+  pull_request:
+    branches: [main]
+  
+  # 🔑 Repository dispatch от marketplace-frontend → тесты + точечный деплой
   repository_dispatch:
     types: [frontend-release]
   
@@ -348,7 +352,7 @@ jobs:
               sed -i "s|^LOGISTICS_VERSION=.*|LOGISTICS_VERSION=latest|" .env.stage
               sed -i "s|^RELAY_VERSION=.*|RELAY_VERSION=latest|" .env.stage
               sed -i "s|^PREVIEW_VERSION=.*|PREVIEW_VERSION=latest|" .env.stage
-              # Фронтенд ВСЕГДА должен использовать stage-образ на стейдже, даже при полном деплое
+              # Фронтенд ВСЕГДА должен использовать stage-образ на стейдже
               sed -i "s|^FRONTEND_VERSION=.*|FRONTEND_VERSION=stage-latest|" .env.stage
               
               echo "📋 Версии в .env.stage:"
@@ -433,3 +437,62 @@ jobs:
             else
               echo "✅ SSL уже существует"
             fi
+
+  # ═══════════════════════════════════════════════════════
+  # ЭТАП 3: ТОЧЕЧНЫЙ ДЕПЛОЙ ОДНОГО СЕРВИСА (ручной запуск)
+  # ═══════════════════════════════════════════════════════
+  deploy-single:
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.deploy_mode == 'single'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: staging
+      url: https://stage.waxey.ru
+    steps:
+      - name: Deploy single service
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.STAGE_HOST }}
+          username: ${{ secrets.STAGE_USER }}
+          key: ${{ secrets.STAGE_SSH_KEY }}
+          script: |
+            cd /opt/waxey-stage
+            SERVICE="${{ github.event.inputs.service }}"
+            # Для точечного деплоя используем latest (последний стабильный образ)
+            TAG="latest"
+            
+            # Для фронтенда используем stage-latest
+            if [ "$SERVICE" = "marketplace-frontend" ]; then
+              TAG="stage-latest"
+            fi
+
+            echo "🔄 Точечный деплой: $SERVICE → $TAG"
+
+            case "$SERVICE" in
+              gateway)             ENV_KEY="GATEWAY_VERSION" ;;
+              auth-service)        ENV_KEY="AUTH_VERSION" ;;
+              crate-digger)        ENV_KEY="CRATE_VERSION" ;;
+              economy-service)     ENV_KEY="ECONOMY_VERSION" ;;
+              marketplace-service) ENV_KEY="MARKETPLACE_VERSION" ;;
+              review-service)      ENV_KEY="REVIEW_VERSION" ;;
+              logistics-service)   ENV_KEY="LOGISTICS_VERSION" ;;
+              relay-api)           ENV_KEY="RELAY_VERSION" ;;
+              preview-api)         ENV_KEY="PREVIEW_VERSION" ;;
+              marketplace-frontend) ENV_KEY="FRONTEND_VERSION" ;;
+              *) echo "❌ Неизвестный сервис: $SERVICE"; exit 1 ;;
+            esac
+
+            sed -i "s|^${ENV_KEY}=.*|${ENV_KEY}=${TAG}|" .env.stage
+            
+            echo "${{ secrets.GHCR_PAT }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+            
+            docker compose --env-file .env.stage -f docker-compose.stage.yml pull "$SERVICE"
+            docker compose --env-file .env.stage -f docker-compose.stage.yml up -d --no-deps "$SERVICE"
+            
+            case "$SERVICE" in
+              auth-service|crate-digger|economy-service|marketplace-service|logistics-service|review-service)
+                docker compose --env-file .env.stage -f docker-compose.stage.yml run --rm --no-deps "$SERVICE" alembic upgrade head || true
+                ;;
+            esac
+            
+            echo "✅ Сервис $SERVICE обновлён до $TAG"
