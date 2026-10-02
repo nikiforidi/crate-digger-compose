@@ -8,3 +8,5 @@ sessions/ytb_session.session
 .npm_token
 env.txt
 .gitignore
+crate-digger-compose.md
+collect_to_markdown.py
