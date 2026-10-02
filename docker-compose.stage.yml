@@ -1,0 +1,476 @@
+services:
+  # ═══════════ API Gateway ═══════════
+  gateway:
+    image: ghcr.io/nikiforidi/api-gateway:${GATEWAY_VERSION}
+    pull_policy: always
+    expose: ["8000"]
+    env_file: .env.stage
+    environment:
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/3
+    depends_on:
+      auth-service: { condition: service_healthy }
+      economy-service: { condition: service_healthy }
+      crate-digger: { condition: service_healthy }
+      marketplace-service: { condition: service_healthy }
+      review-service: { condition: service_healthy }
+      logistics-service: { condition: service_healthy }
+      relay-api: { condition: service_healthy }
+      preview-api: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    networks: [app-net]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+
+  # ═══════════ Prometheus ═══════════
+  prometheus:
+    image: prom/prometheus:latest
+    expose: ["9090"]
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    networks: [app-net]
+    restart: unless-stopped
+
+  # ═══════════ Nginx (HTTPS + certbot) ═══════════
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx-stage.conf:/etc/nginx/nginx.conf:ro
+      - ./certbot/conf:/etc/letsencrypt:ro
+      - ./certbot/www:/var/www/certbot
+    depends_on:
+      gateway: { condition: service_healthy }
+    networks: [app-net]
+    restart: unless-stopped
+
+  # ═══════════ Certbot (SSL auto-renew) ═══════════
+  certbot:
+    image: certbot/certbot
+    volumes:
+      - ./certbot/conf:/etc/letsencrypt
+      - ./certbot/www:/var/www/certbot
+    entrypoint: >
+      /bin/sh -c '
+        trap exit TERM;
+        while :; do
+          certbot renew --webroot -w /var/www/certbot --quiet;
+          sleep 12h;
+        done
+      '
+    networks: [app-net]
+    restart: unless-stopped
+
+  # ═══════════ Auth Service ═══════════
+  auth-service:
+    image: ghcr.io/nikiforidi/auth-service:${AUTH_VERSION}
+    pull_policy: always
+    expose: ["8000"]
+    env_file: .env.stage
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://postgres:${DB_PASSWORD}@db:5432/auth_db
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/1
+    depends_on:
+      db: { condition: service_healthy }
+      db-init: { condition: service_completed_successfully }
+      redis: { condition: service_healthy }
+    networks: [app-net]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
+  # ═══════════ Crate Digger ═══════════
+  crate-digger:
+    image: ghcr.io/nikiforidi/crate-digger:${CRATE_VERSION}
+    pull_policy: always
+    expose: ["8000"]
+    env_file: .env.stage
+    environment:
+      - DATABASE_URL=postgresql+psycopg2://postgres:${DB_PASSWORD}@db:5432/crate_digger
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
+      - S3_ENDPOINT_URL=${S3_ENDPOINT_URL}
+      - S3_ACCESS_KEY=${S3_ACCESS_KEY}
+      - S3_SECRET_KEY=${S3_SECRET_KEY}
+      - S3_BUCKET_NAME=${S3_BUCKET_NAME}
+      - MINIO_PUBLIC_URL=http://minio:9000
+      - RELAY_SERVICE_URL=http://relay-api:8000
+      - PREVIEW_SERVICE_URL=http://preview-api:8000
+    depends_on:
+      db: { condition: service_healthy }
+      db-init: { condition: service_completed_successfully }
+      redis: { condition: service_healthy }
+      minio: { condition: service_healthy }
+    networks: [app-net]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+    restart: unless-stopped
+
+  # ═══════════ Crate Digger Worker ═══════════
+  crate-digger-worker:
+    image: ghcr.io/nikiforidi/crate-digger:${CRATE_VERSION}
+    pull_policy: always
+    command: celery -A app.worker.celery worker --loglevel=info --concurrency=2
+    env_file: .env.stage
+    environment:
+      - DATABASE_URL=postgresql+psycopg2://postgres:${DB_PASSWORD}@db:5432/crate_digger
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
+      - S3_ENDPOINT_URL=${S3_ENDPOINT_URL}
+      - S3_ACCESS_KEY=${S3_ACCESS_KEY}
+      - S3_SECRET_KEY=${S3_SECRET_KEY}
+      - S3_BUCKET_NAME=${S3_BUCKET_NAME}
+      - MINIO_PUBLIC_URL=http://minio:9000
+      - RELAY_SERVICE_URL=http://relay-api:8000
+      - PREVIEW_SERVICE_URL=http://preview-api:8000
+    depends_on:
+      db: { condition: service_healthy }
+      db-init: { condition: service_completed_successfully }
+      redis: { condition: service_healthy }
+      minio: { condition: service_healthy }
+    networks: [app-net]
+    restart: unless-stopped
+    healthcheck:
+      disable: true
+
+  # ═══════════ Economy Service ═══════════
+  economy-service:
+    image: ghcr.io/nikiforidi/economy-service:${ECONOMY_VERSION}
+    pull_policy: always
+    expose: ["8000"]
+    env_file: .env.stage
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://postgres:${DB_PASSWORD}@db:5432/economy_db
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/2
+    depends_on:
+      db: { condition: service_healthy }
+      db-init: { condition: service_completed_successfully }
+      redis: { condition: service_healthy }
+      crate-digger: { condition: service_healthy }
+      auth-service: { condition: service_healthy }
+    networks: [app-net]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
+  # ═══════════ Marketplace Service ═══════════
+  marketplace-service:
+    image: ghcr.io/nikiforidi/marketplace-service:${MARKETPLACE_VERSION}
+    pull_policy: always
+    expose: ["8003"]
+    env_file: .env.stage
+    environment:
+      - DATABASE_URL=postgresql://postgres:${DB_PASSWORD}@db:5432/marketplace_db
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/4
+      - MINIO_ENDPOINT=minio:9000
+      - MINIO_ACCESS_KEY=${S3_ACCESS_KEY}
+      - MINIO_SECRET_KEY=${S3_SECRET_KEY}
+      - MINIO_SECURE=false
+      - MINIO_PUBLIC_URL=http://minio:9000
+      - LISTINGS_BUCKET=marketplace-listings
+    depends_on:
+      db: { condition: service_healthy }
+      db-init: { condition: service_completed_successfully }
+      redis: { condition: service_healthy }
+      minio: { condition: service_healthy }
+      createbuckets: { condition: service_completed_successfully }
+      crate-digger: { condition: service_healthy }
+      auth-service: { condition: service_healthy }
+    networks: [app-net]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8003/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
+  # ═══════════ Review Service ═══════════
+  review-service:
+    image: ghcr.io/nikiforidi/crate-reviews:${REVIEW_VERSION}
+    pull_policy: always
+    expose: ["8000"]
+    env_file: .env.stage
+    environment:
+      - DATABASE_URL=postgresql://postgres:${DB_PASSWORD}@db:5432/review_service
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
+    depends_on:
+      db: { condition: service_healthy }
+      db-init: { condition: service_completed_successfully }
+      redis: { condition: service_healthy }
+    networks: [app-net]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
+  # ═══════════ Logistics (ApiShip) ═══════════
+  logistics-migrate:
+    image: ghcr.io/nikiforidi/logistics-service:${LOGISTICS_VERSION}
+    pull_policy: always
+    command: alembic upgrade head
+    env_file: .env.stage
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://postgres:${DB_PASSWORD}@db:5432/logistics_db
+    depends_on:
+      db: { condition: service_healthy }
+      db-init: { condition: service_completed_successfully }
+    networks: [app-net]
+    restart: "no"
+
+  logistics-service:
+    image: ghcr.io/nikiforidi/logistics-service:${LOGISTICS_VERSION}
+    pull_policy: always
+    expose: ["8004"]
+    env_file: .env.stage
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://postgres:${DB_PASSWORD}@db:5432/logistics_db
+      - ECONOMY_SERVICE_URL=http://economy-service:8000
+      - COURIER_PICKUP_FEE_RUB=${COURIER_PICKUP_FEE_RUB:-150}
+      - DEFAULT_WEIGHT_G=${DEFAULT_WEIGHT_G:-600}
+      - DEFAULT_SIZE_CM=${DEFAULT_SIZE_CM:-30}
+    depends_on:
+      db: { condition: service_healthy }
+      db-init: { condition: service_completed_successfully }
+      logistics-migrate: { condition: service_completed_successfully }
+    networks: [app-net]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8004/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
+  # ═══════════ YTB Audio Relay ═══════════
+  relay-api:
+    image: ghcr.io/nikiforidi/ytb-audio-relay:${RELAY_VERSION}
+    pull_policy: always
+    expose: ["8000"]
+    env_file: .env.stage
+    environment:
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
+      - MINIO_ENDPOINT=minio:9000
+      - MINIO_ACCESS_KEY=${S3_ACCESS_KEY}
+      - MINIO_SECRET_KEY=${S3_SECRET_KEY}
+      - MINIO_SECURE=false
+      - MINIO_PUBLIC_URL=/minio
+      - MINIO_BUCKET=${S3_BUCKET_NAME}
+    volumes:
+      - ./sessions:/app/sessions
+    depends_on:
+      redis: { condition: service_healthy }
+      minio: { condition: service_healthy }
+    networks: [app-net]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
+    command: uvicorn main:app --host 0.0.0.0 --port 8000
+    restart: unless-stopped
+
+  relay-worker:
+    image: ghcr.io/nikiforidi/ytb-audio-relay:${RELAY_VERSION}
+    pull_policy: always
+    env_file: .env.stage
+    environment:
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
+      - MINIO_ENDPOINT=minio:9000
+      - MINIO_ACCESS_KEY=${S3_ACCESS_KEY}
+      - MINIO_SECRET_KEY=${S3_SECRET_KEY}
+      - MINIO_SECURE=false
+      - MINIO_PUBLIC_URL=/minio
+      - MINIO_BUCKET=${S3_BUCKET_NAME}
+    volumes:
+      - ./sessions:/app/sessions
+    depends_on:
+      redis: { condition: service_healthy }
+      minio: { condition: service_healthy }
+    networks: [app-net]
+    command: python -m arq worker.WorkerSettings
+    restart: unless-stopped
+    healthcheck:
+      disable: true
+
+  # ═══════════ YTB Audio Preview ═══════════
+  preview-api:
+    image: ghcr.io/nikiforidi/ytb-audio-preview:${PREVIEW_VERSION}
+    pull_policy: always
+    expose: ["8000"]
+    env_file: .env.stage
+    environment:
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/5
+      - MINIO_ENDPOINT=minio:9000
+      - MINIO_ACCESS_KEY=${S3_ACCESS_KEY}
+      - MINIO_SECRET_KEY=${S3_SECRET_KEY}
+      - MINIO_SECURE=false
+      - MINIO_PUBLIC_URL=/minio
+      - SOURCE_BUCKET=${S3_BUCKET_NAME}
+      - PREVIEW_BUCKET=ytb-audio-previews
+      - LISTING_BUCKET=listing-audio
+    depends_on:
+      redis: { condition: service_healthy }
+      minio: { condition: service_healthy }
+      createbuckets: { condition: service_completed_successfully }
+    networks: [app-net]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
+    command: uvicorn main:app --host 0.0.0.0 --port 8000
+    restart: unless-stopped
+
+  preview-worker:
+    image: ghcr.io/nikiforidi/ytb-audio-preview:${PREVIEW_VERSION}
+    pull_policy: always
+    env_file: .env.stage
+    environment:
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/5
+      - MINIO_ENDPOINT=minio:9000
+      - MINIO_ACCESS_KEY=${S3_ACCESS_KEY}
+      - MINIO_SECRET_KEY=${S3_SECRET_KEY}
+      - MINIO_SECURE=false
+      - MINIO_PUBLIC_URL=/minio
+      - SOURCE_BUCKET=${S3_BUCKET_NAME}
+      - PREVIEW_BUCKET=ytb-audio-previews
+      - LISTING_BUCKET=listing-audio
+    depends_on:
+      redis: { condition: service_healthy }
+      minio: { condition: service_healthy }
+      createbuckets: { condition: service_completed_successfully }
+    networks: [app-net]
+    command: python -m arq worker.WorkerSettings
+    restart: unless-stopped
+    healthcheck:
+      disable: true
+
+  # ═══════════ Marketplace Frontend ═══════════
+  marketplace-frontend:
+    image: ghcr.io/nikiforidi/marketplace-frontend:${FRONTEND_VERSION}
+    pull_policy: always
+    expose: ["3000"]
+    env_file: .env.stage
+    environment:
+      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-https://stage.waxey.ru}
+    depends_on:
+      gateway: { condition: service_healthy }
+    networks: [app-net]
+    restart: unless-stopped
+
+  # ═══════════ Shared Infrastructure ═══════════
+  db:
+    image: postgres:15-alpine
+    env_file: .env.stage
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks: [app-net]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
+  db-init:
+    image: postgres:15-alpine
+    env_file: .env.stage
+    depends_on:
+      db: { condition: service_healthy }
+    entrypoint: >
+      /bin/sh -c "
+        sleep 3;
+        PGPASSWORD=$${DB_PASSWORD} psql -h db -U postgres -c 'CREATE DATABASE auth_db;' 2>/dev/null;
+        PGPASSWORD=$${DB_PASSWORD} psql -h db -U postgres -c 'CREATE DATABASE economy_db;' 2>/dev/null;
+        PGPASSWORD=$${DB_PASSWORD} psql -h db -U postgres -c 'CREATE DATABASE marketplace_db;' 2>/dev/null;
+        PGPASSWORD=$${DB_PASSWORD} psql -h db -U postgres -c 'CREATE DATABASE crate_digger;' 2>/dev/null;
+        PGPASSWORD=$${DB_PASSWORD} psql -h db -U postgres -c 'CREATE DATABASE review_service;' 2>/dev/null;
+        PGPASSWORD=$${DB_PASSWORD} psql -h db -U postgres -c 'CREATE DATABASE logistics_db;' 2>/dev/null;
+        exit 0
+      "
+    networks: [app-net]
+    restart: "no"
+
+  redis:
+    image: redis:7-alpine
+    env_file: .env.stage
+    command: redis-server --requirepass ${REDIS_PASSWORD} --appendonly yes --maxmemory 256mb
+    volumes:
+      - redis-data:/data
+    networks: [app-net]
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+    restart: unless-stopped
+
+  minio:
+    image: alpine/minio:latest-release
+    env_file: .env.stage
+    command: server /data --console-address ":9001"
+    volumes:
+      - minio-data:/data
+    networks: [app-net]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
+  createbuckets:
+    image: alpine/minio:latest-release
+    env_file: .env.stage
+    restart: "no"
+    depends_on:
+      minio: { condition: service_healthy }
+    entrypoint: >
+      /bin/sh -c "
+        /usr/bin/mc alias set myminio http://minio:9000 ${S3_ACCESS_KEY} ${S3_SECRET_KEY} &&
+        /usr/bin/mc mb --ignore-existing myminio/${S3_BUCKET_NAME} &&
+        /usr/bin/mc mb --ignore-existing myminio/ytb-audio-previews &&
+        /usr/bin/mc mb --ignore-existing myminio/marketplace-listings &&
+        /usr/bin/mc mb --ignore-existing myminio/listing-audio &&
+        /usr/bin/mc anonymous set public myminio/${S3_BUCKET_NAME} &&
+        /usr/bin/mc anonymous set public myminio/ytb-audio-previews &&
+        /usr/bin/mc anonymous set public myminio/marketplace-listings &&
+        /usr/bin/mc anonymous set public myminio/listing-audio;
+        exit 0
+      "
+    networks: [app-net]
+
+volumes:
+  postgres-data:
+  redis-data:
+  minio-data:
+  prometheus-data:
+
+networks:
+  app-net:
+    driver: bridge

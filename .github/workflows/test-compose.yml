@@ -1,25 +1,54 @@
 name: CI Integration Test
+
 on:
   push:
     branches: [main, develop]
   pull_request:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      deploy_mode:
+        description: 'Режим деплоя (только для ручного запуска)'
+        required: false
+        default: 'full'
+        type: choice
+        options:
+          - full
+          - single
+      service:
+        description: 'Сервис для точечного обновления (при режиме single)'
+        required: false
+        default: ''
+        type: choice
+        options:
+          - gateway
+          - auth-service
+          - crate-digger
+          - economy-service
+          - marketplace-service
+          - review-service
+          - logistics-service
+          - relay-api
+          - preview-api
+          - marketplace-frontend
 
 permissions:
   contents: read
-  packages: write  # ← Критично для GHCR
+  packages: write
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
+  # ═══════════════════════════════════════════════════════
+  # ЭТАП 1: ТЕСТЫ
+  # ═══════════════════════════════════════════════════════
   test:
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.deploy_mode == 'full'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
-      # 🔑 НОВОЕ: фиксированное имя проекта → предсказуемые имена контейнеров (ci-db-1, ci-gateway-1)
       COMPOSE_PROJECT_NAME: ci
       API_ID: ${{ secrets.TG_API_ID }}
       API_HASH: ${{ secrets.TG_API_HASH }}
@@ -137,7 +166,6 @@ jobs:
           fi
           echo "✅ All services are healthy!"
 
-      # ═══════════════════ 🔑 НОВОЕ: E2E-ТЕСТЫ ═══════════════════
       - name: Install E2E test dependencies
         run: |
           python3 -m pip install --upgrade pip
@@ -153,7 +181,7 @@ jobs:
           python3 -m pytest e2e_tests -v -s --junitxml=e2e_report.xml
 
       - name: Run E2E slow tests (autocancel 72h)
-        continue-on-error: true   # информативный шаг, не валит CI пока планировщик не стабилен
+        continue-on-error: true
         env:
           E2E_BASE_URL: http://localhost
           E2E_DB_CONTAINER: ci-db-1
@@ -171,7 +199,6 @@ jobs:
           path: |
             e2e_report.xml
             e2e_slow_report.xml
-      # ═══════════════════════════════════════════════════════════
 
       - name: Debug on failure
         if: failure()
@@ -206,3 +233,196 @@ jobs:
       - name: Cleanup
         if: always()
         run: docker compose --env-file .env.testing -f docker-compose.testing.yml down -v
+
+  # ═══════════════════════════════════════════════════════
+  # ЭТАП 2: ПОЛНЫЙ ДЕПЛОЙ НА STAGE (после зелёных тестов)
+  # ═══════════════════════════════════════════════════════
+  deploy-stage:
+    needs: test
+    if: |
+      always() && needs.test.result == 'success' &&
+      ((github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+       (github.event_name == 'workflow_dispatch' && github.event.inputs.deploy_mode == 'full'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: staging
+      url: https://stage.waxey.ru
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Copy deployment files to server
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.STAGE_HOST }}
+          username: ${{ secrets.STAGE_USER }}
+          key: ${{ secrets.STAGE_SSH_KEY }}
+          source: "docker-compose.stage.yml,nginx-stage.conf"
+          target: /opt/waxey-stage
+
+      - name: Full deploy to stage
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.STAGE_HOST }}
+          username: ${{ secrets.STAGE_USER }}
+          key: ${{ secrets.STAGE_SSH_KEY }}
+          script: |
+            cd /opt/waxey-stage
+            TAG="${GITHUB_SHA::7}"
+
+            echo "🚀 Полный деплой на stage → $TAG"
+
+            # Обновляем все версии в .env.stage
+            sed -i "s|^GATEWAY_VERSION=.*|GATEWAY_VERSION=${TAG}|" .env.stage
+            sed -i "s|^AUTH_VERSION=.*|AUTH_VERSION=${TAG}|" .env.stage
+            sed -i "s|^CRATE_VERSION=.*|CRATE_VERSION=${TAG}|" .env.stage
+            sed -i "s|^MARKETPLACE_VERSION=.*|MARKETPLACE_VERSION=${TAG}|" .env.stage
+            sed -i "s|^ECONOMY_VERSION=.*|ECONOMY_VERSION=${TAG}|" .env.stage
+            sed -i "s|^REVIEW_VERSION=.*|REVIEW_VERSION=${TAG}|" .env.stage
+            sed -i "s|^LOGISTICS_VERSION=.*|LOGISTICS_VERSION=${TAG}|" .env.stage
+            sed -i "s|^RELAY_VERSION=.*|RELAY_VERSION=${TAG}|" .env.stage
+            sed -i "s|^PREVIEW_VERSION=.*|PREVIEW_VERSION=${TAG}|" .env.stage
+            sed -i "s|^FRONTEND_VERSION=.*|FRONTEND_VERSION=${TAG}|" .env.stage
+
+            # Логинимся в GHCR
+            echo "${{ secrets.GHCR_PAT }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
+            # Останавливаем старые контейнеры
+            docker compose --env-file .env.stage -f docker-compose.stage.yml down --remove-orphans
+
+            # Пуллим новые образы
+            docker compose --env-file .env.stage -f docker-compose.stage.yml pull
+
+            # Запускаем инфраструктуру
+            docker compose --env-file .env.stage -f docker-compose.stage.yml up -d db redis minio db-init
+
+            echo "⏳ Ожидаем PostgreSQL..."
+            for i in $(seq 1 30); do
+              if docker compose --env-file .env.stage -f docker-compose.stage.yml exec -T db pg_isready -U postgres > /dev/null 2>&1; then
+                echo "✅ PostgreSQL готов!"
+                break
+              fi
+              sleep 2
+            done
+
+            echo "⏳ Ожидаем завершения db-init..."
+            for i in $(seq 1 10); do
+              if docker compose --env-file .env.stage -f docker-compose.stage.yml ps db-init | grep -q "Exit 0"; then
+                echo "✅ db-init завершён!"
+                break
+              fi
+              sleep 2
+            done
+
+            # Применяем миграции
+            echo "🗄️ Применяем миграции..."
+            for svc in auth-service crate-digger economy-service marketplace-service logistics-service review-service; do
+              echo "  → $svc"
+              docker compose --env-file .env.stage -f docker-compose.stage.yml run --rm --no-deps $svc alembic upgrade head
+            done
+
+            # Создаём бакеты MinIO
+            docker compose --env-file .env.stage -f docker-compose.stage.yml run --rm createbuckets
+
+            # Запускаем все сервисы
+            docker compose --env-file .env.stage -f docker-compose.stage.yml up -d
+
+            # Проверяем готовность
+            echo "⏳ Ожидаем сервисы..."
+            for i in $(seq 1 60); do
+              if curl -sf http://localhost/health > /dev/null; then
+                echo "✅ Stage готов!"
+                exit 0
+              fi
+              sleep 2
+            done
+            echo "❌ Сервисы не поднялись за 120 секунд"
+            docker compose --env-file .env.stage -f docker-compose.stage.yml ps
+            exit 1
+
+      - name: Ensure SSL certificate
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.STAGE_HOST }}
+          username: ${{ secrets.STAGE_USER }}
+          key: ${{ secrets.STAGE_SSH_KEY }}
+          script: |
+            cd /opt/waxey-stage
+            if [ ! -f "./certbot/conf/live/stage.waxey.ru/fullchain.pem" ]; then
+              echo "🔐 Выпускаем SSL-сертификат..."
+              mkdir -p certbot/conf certbot/www
+              docker run --rm \
+                -v $(pwd)/certbot/conf:/etc/letsencrypt \
+                -v $(pwd)/certbot/www:/var/www/certbot \
+                certbot/certbot certonly --webroot \
+                -w /var/www/certbot \
+                -d stage.waxey.ru \
+                --email legal@waxey.ru \
+                --agree-tos --no-eff-email
+              docker compose --env-file .env.stage -f docker-compose.stage.yml restart nginx
+              echo "✅ SSL выпущен"
+            else
+              echo "✅ SSL уже существует"
+            fi
+
+  # ═══════════════════════════════════════════════════════
+  # ЭТАП 3: ТОЧЕЧНЫЙ ДЕПЛОЙ ОДНОГО СЕРВИСА (без тестов)
+  # ═══════════════════════════════════════════════════════
+  deploy-single:
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.deploy_mode == 'single'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: staging
+      url: https://stage.waxey.ru
+    steps:
+      - name: Deploy single service
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.STAGE_HOST }}
+          username: ${{ secrets.STAGE_USER }}
+          key: ${{ secrets.STAGE_SSH_KEY }}
+          script: |
+            cd /opt/waxey-stage
+            SERVICE="${{ github.event.inputs.service }}"
+            TAG="${GITHUB_SHA::7}"
+
+            echo "🔄 Точечный деплой: $SERVICE → $TAG"
+
+            # Маппинг имён сервисов на переменные окружения
+            case "$SERVICE" in
+              gateway)             ENV_KEY="GATEWAY_VERSION" ;;
+              auth-service)        ENV_KEY="AUTH_VERSION" ;;
+              crate-digger)        ENV_KEY="CRATE_VERSION" ;;
+              economy-service)     ENV_KEY="ECONOMY_VERSION" ;;
+              marketplace-service) ENV_KEY="MARKETPLACE_VERSION" ;;
+              review-service)      ENV_KEY="REVIEW_VERSION" ;;
+              logistics-service)   ENV_KEY="LOGISTICS_VERSION" ;;
+              relay-api)           ENV_KEY="RELAY_VERSION" ;;
+              preview-api)         ENV_KEY="PREVIEW_VERSION" ;;
+              marketplace-frontend) ENV_KEY="FRONTEND_VERSION" ;;
+              *) echo "❌ Неизвестный сервис: $SERVICE"; exit 1 ;;
+            esac
+
+            # Обновляем версию конкретного сервиса
+            sed -i "s|^${ENV_KEY}=.*|${ENV_KEY}=${TAG}|" .env.stage
+
+            # Логинимся в GHCR
+            echo "${{ secrets.GHCR_PAT }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
+            # Пуллим и перезапускаем только нужный сервис
+            docker compose --env-file .env.stage -f docker-compose.stage.yml pull "$SERVICE"
+            docker compose --env-file .env.stage -f docker-compose.stage.yml up -d --no-deps "$SERVICE"
+
+            # Применяем миграции для сервиса (если есть)
+            case "$SERVICE" in
+              auth-service)        docker compose --env-file .env.stage -f docker-compose.stage.yml run --rm --no-deps auth-service alembic upgrade head ;;
+              crate-digger)        docker compose --env-file .env.stage -f docker-compose.stage.yml run --rm --no-deps crate-digger alembic upgrade head ;;
+              economy-service)     docker compose --env-file .env.stage -f docker-compose.stage.yml run --rm --no-deps economy-service alembic upgrade head ;;
+              marketplace-service) docker compose --env-file .env.stage -f docker-compose.stage.yml run --rm --no-deps marketplace-service alembic upgrade head ;;
+              logistics-service)   docker compose --env-file .env.stage -f docker-compose.stage.yml run --rm --no-deps logistics-service alembic upgrade head ;;
+              review-service)      docker compose --env-file .env.stage -f docker-compose.stage.yml run --rm --no-deps review-service alembic upgrade head ;;
+            esac
+
+            echo "✅ Сервис $SERVICE обновлён до $TAG"
