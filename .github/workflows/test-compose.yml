@@ -331,7 +331,7 @@ jobs:
             sed -i "s|^LOGISTICS_VERSION=.*|LOGISTICS_VERSION=${TAG}|" .env.stage
             sed -i "s|^RELAY_VERSION=.*|RELAY_VERSION=${TAG}|" .env.stage
             sed -i "s|^PREVIEW_VERSION=.*|PREVIEW_VERSION=${TAG}|" .env.stage
-            sed -i "s|^FRONTEND_VERSION=.*|FRONTEND_VERSION=${TAG}|" .env.stage
+            sed -i "s|^FRONTEND_VERSION=.*|FRONTEND_VERSION=stage-${TAG}|" .env.stage
             
             echo "📋 Версии в .env.stage:"
             grep "_VERSION=" .env.stage
