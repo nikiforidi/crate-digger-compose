@@ -264,6 +264,19 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+      
+      - name: Prepare Telegram Session for stage
+        run: |
+          mkdir -p ./sessions
+          chmod 777 ./sessions
+          echo "${{ secrets.TG_SESSION_BASE64 }}" | tr -d '\n\r' | base64 --decode > ./sessions/ytb_session.session
+          chmod 666 ./sessions/ytb_session.session
+          if [ ! -s ./sessions/ytb_session.session ]; then
+            echo "❌ CRITICAL ERROR: Decoded session file is EMPTY (0 bytes)!"
+            exit 1
+          fi
+          echo "✅ Telegram session prepared for stage deployment"
+          ls -lh ./sessions/
 
       - name: Copy deployment files to server
         uses: appleboy/scp-action@v0.1.7
@@ -273,6 +286,16 @@ jobs:
           key: ${{ secrets.STAGE_SSH_KEY }}
           source: "docker-compose.stage.yml,nginx-stage.conf"
           target: /opt/waxey-stage
+      
+      - name: Copy Telegram session to server
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.STAGE_HOST }}
+          username: ${{ secrets.STAGE_USER }}
+          key: ${{ secrets.STAGE_SSH_KEY }}
+          source: "sessions/"
+          target: /opt/waxey-stage
+          strip_components: 0
 
       - name: Full deploy to stage
         uses: appleboy/ssh-action@v1.0.3
