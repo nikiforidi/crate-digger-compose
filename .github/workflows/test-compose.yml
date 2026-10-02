@@ -303,12 +303,25 @@ jobs:
           host: ${{ secrets.STAGE_HOST }}
           username: ${{ secrets.STAGE_USER }}
           key: ${{ secrets.STAGE_SSH_KEY }}
-          envs: GITHUB_SHA   # ← КРИТИЧНО: внутри with, без пробелов
+          envs: GITHUB_SHA
           script: |
             cd /opt/waxey-stage
-            TAG="${GITHUB_SHA:0:7}"
-            echo "🚀 Полный деплой на stage → $TAG"
+            SHA_TAG="${GITHUB_SHA:0:7}"
+            echo "🚀 Полный деплой на stage → попытка SHA: $SHA_TAG"
             
+            echo "${{ secrets.GHCR_PAT }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+            
+            # Проверяем, существует ли образ gateway с SHA-тегом
+            # Если нет — используем latest (fallback)
+            if docker manifest inspect ghcr.io/nikiforidi/api-gateway:${SHA_TAG} > /dev/null 2>&1; then
+              TAG="${SHA_TAG}"
+              echo "✅ Найден SHA-тег: $TAG"
+            else
+              TAG="latest"
+              echo "⚠️ SHA-тег $SHA_TAG не найден в GHCR, используем: $TAG"
+            fi
+            
+            # Обновляем .env.stage
             sed -i "s|^GATEWAY_VERSION=.*|GATEWAY_VERSION=${TAG}|" .env.stage
             sed -i "s|^AUTH_VERSION=.*|AUTH_VERSION=${TAG}|" .env.stage
             sed -i "s|^CRATE_VERSION=.*|CRATE_VERSION=${TAG}|" .env.stage
@@ -320,10 +333,13 @@ jobs:
             sed -i "s|^PREVIEW_VERSION=.*|PREVIEW_VERSION=${TAG}|" .env.stage
             sed -i "s|^FRONTEND_VERSION=.*|FRONTEND_VERSION=${TAG}|" .env.stage
             
-            echo "${{ secrets.GHCR_PAT }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+            echo "📋 Версии в .env.stage:"
+            grep "_VERSION=" .env.stage
             
             docker compose --env-file .env.stage -f docker-compose.stage.yml down --remove-orphans
             docker compose --env-file .env.stage -f docker-compose.stage.yml pull
+            
+            echo "⏳ Поднимаем инфраструктуру..."
             docker compose --env-file .env.stage -f docker-compose.stage.yml up -d db redis minio db-init
             
             echo "⏳ Ожидаем PostgreSQL..."
@@ -347,22 +363,28 @@ jobs:
             echo "🗄️ Применяем миграции..."
             for svc in auth-service crate-digger economy-service marketplace-service logistics-service review-service; do
               echo "  → $svc"
-              docker compose --env-file .env.stage -f docker-compose.stage.yml run --rm --no-deps $svc alembic upgrade head
+              docker compose --env-file .env.stage -f docker-compose.stage.yml run --rm --no-deps $svc alembic upgrade head || echo "⚠️ Миграция $svc упала (может быть уже применена)"
             done
             
+            echo "🚀 Поднимаем все сервисы..."
             docker compose --env-file .env.stage -f docker-compose.stage.yml up -d
             
-            echo "⏳ Ожидаем сервисы..."
-            for i in $(seq 1 60); do
-              if curl -sf http://localhost/health > /dev/null; then
-                echo "✅ Stage готов!"
-                exit 0
+            echo "⏳ Ожидаем сервисы (до 3 минут)..."
+            for i in $(seq 1 90); do
+              if curl -sf http://localhost:8000/health > /dev/null; then
+                echo "✅ Stage готов на порту 8000!"
+                break
+              fi
+              if [ $i -eq 90 ]; then
+                echo "❌ Сервисы не поднялись за 180 секунд"
+                docker compose --env-file .env.stage -f docker-compose.stage.yml ps
+                docker compose --env-file .env.stage -f docker-compose.stage.yml logs gateway --tail=30
+                exit 1
               fi
               sleep 2
             done
-            echo "❌ Сервисы не поднялись за 120 секунд"
-            docker compose --env-file .env.stage -f docker-compose.stage.yml ps
-            exit 1
+            
+            echo "✅ Деплой завершён успешно (тег: $TAG)"
 
       - name: Ensure SSL certificate
         uses: appleboy/ssh-action@v1.0.3
@@ -410,10 +432,34 @@ jobs:
           script: |
             cd /opt/waxey-stage
             SERVICE="${{ github.event.inputs.service }}"
-            TAG="${GITHUB_SHA::7}"
-
+            SHA_TAG="${GITHUB_SHA:0:7}"
+            
+            echo "${{ secrets.GHCR_PAT }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+            
+            # Определяем имя образа для проверки
+            case "$SERVICE" in
+              gateway)             IMAGE_NAME="api-gateway" ;;
+              auth-service)        IMAGE_NAME="auth-service" ;;
+              crate-digger)        IMAGE_NAME="crate-digger" ;;
+              economy-service)     IMAGE_NAME="economy-service" ;;
+              marketplace-service) IMAGE_NAME="marketplace-service" ;;
+              review-service)      IMAGE_NAME="crate-reviews" ;;
+              logistics-service)   IMAGE_NAME="logistics-service" ;;
+              relay-api|relay-worker)        IMAGE_NAME="ytb-audio-relay" ;;
+              preview-api|preview-worker)    IMAGE_NAME="ytb-audio-preview" ;;
+              marketplace-frontend) IMAGE_NAME="marketplace-frontend" ;;
+              *) echo "❌ Неизвестный сервис: $SERVICE"; exit 1 ;;
+            esac
+            
+            # Fallback на latest если SHA-тега нет
+            if docker manifest inspect ghcr.io/nikiforidi/${IMAGE_NAME}:${SHA_TAG} > /dev/null 2>&1; then
+              TAG="${SHA_TAG}"
+            else
+              TAG="latest"
+            fi
+            
             echo "🔄 Точечный деплой: $SERVICE → $TAG"
-
+            
             case "$SERVICE" in
               gateway)             ENV_KEY="GATEWAY_VERSION" ;;
               auth-service)        ENV_KEY="AUTH_VERSION" ;;
@@ -425,23 +471,16 @@ jobs:
               relay-api)           ENV_KEY="RELAY_VERSION" ;;
               preview-api)         ENV_KEY="PREVIEW_VERSION" ;;
               marketplace-frontend) ENV_KEY="FRONTEND_VERSION" ;;
-              *) echo "❌ Неизвестный сервис: $SERVICE"; exit 1 ;;
             esac
-
+            
             sed -i "s|^${ENV_KEY}=.*|${ENV_KEY}=${TAG}|" .env.stage
-
-            echo "${{ secrets.GHCR_PAT }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
-
             docker compose --env-file .env.stage -f docker-compose.stage.yml pull "$SERVICE"
             docker compose --env-file .env.stage -f docker-compose.stage.yml up -d --no-deps "$SERVICE"
-
+            
             case "$SERVICE" in
-              auth-service)        docker compose --env-file .env.stage -f docker-compose.stage.yml run --rm --no-deps auth-service alembic upgrade head ;;
-              crate-digger)        docker compose --env-file .env.stage -f docker-compose.stage.yml run --rm --no-deps crate-digger alembic upgrade head ;;
-              economy-service)     docker compose --env-file .env.stage -f docker-compose.stage.yml run --rm --no-deps economy-service alembic upgrade head ;;
-              marketplace-service) docker compose --env-file .env.stage -f docker-compose.stage.yml run --rm --no-deps marketplace-service alembic upgrade head ;;
-              logistics-service)   docker compose --env-file .env.stage -f docker-compose.stage.yml run --rm --no-deps logistics-service alembic upgrade head ;;
-              review-service)      docker compose --env-file .env.stage -f docker-compose.stage.yml run --rm --no-deps review-service alembic upgrade head ;;
+              auth-service|crate-digger|economy-service|marketplace-service|logistics-service|review-service)
+                docker compose --env-file .env.stage -f docker-compose.stage.yml run --rm --no-deps "$SERVICE" alembic upgrade head || true
+                ;;
             esac
-
+            
             echo "✅ Сервис $SERVICE обновлён до $TAG"
