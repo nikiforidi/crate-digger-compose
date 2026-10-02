@@ -11,7 +11,7 @@ on:
   
   # 🔑 Repository dispatch от marketplace-frontend → тесты + точечный деплой
   repository_dispatch:
-    types: [frontend-release]
+    types: [frontend-release, service-release]
   
   # Ручной запуск
   workflow_dispatch:
