@@ -67,7 +67,7 @@ services:
       gateway: { condition: service_healthy }
     networks: [app-net]
     restart: unless-stopped
-
+    
   # ============ Auth ============
   auth-service:
     build:
@@ -85,6 +85,7 @@ services:
       - INITIAL_ADMIN_EMAIL=${INITIAL_ADMIN_EMAIL}
       - INITIAL_ADMIN_PASSWORD=${INITIAL_ADMIN_PASSWORD:-}
       - LOG_LEVEL=${LOG_LEVEL}
+      - ENABLE_PROMO_PERIOD=${ENABLE_PROMO_PERIOD:-true}
     depends_on:
       db: { condition: service_healthy }
       db-init: { condition: service_completed_successfully }

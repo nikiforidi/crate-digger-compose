@@ -1,5 +1,5 @@
+# e2e_tests/conftest.py
 """E2E-тесты рефакторинга доставки.
-
 Контракт (по реальной схеме economy-service):
 - POST /orders/checkout принимает ОДИН объект `shipping` на весь заказ;
 - address_id находится внутри shipping;
@@ -16,15 +16,12 @@ import pytest
 
 BASE_URL = os.getenv("E2E_BASE_URL", "http://localhost").rstrip("/")
 API = f"{BASE_URL}/api/v1"
-
 DB_CONTAINER = os.getenv("E2E_DB_CONTAINER", "ci-db-1")
 GW_CONTAINER = os.getenv("E2E_GW_CONTAINER", "ci-gateway-1")
 ECONOMY_CONTAINER = os.getenv("E2E_ECONOMY_CONTAINER", "ci-economy-service-1")
-
 ADMIN_EMAIL = os.getenv("E2E_ADMIN_EMAIL", "admin@crate.market")
 ADMIN_PASSWORD = os.getenv("E2E_ADMIN_PASSWORD", "admin123")
 PASSWORD = "E2e!Passw0rd#2026"
-
 RUN_SLOW = os.getenv("E2E_RUN_SLOW", "") == "1"
 
 PNG_1X1 = base64.b64decode(
@@ -52,8 +49,8 @@ P = {
     "listing_moderate": "/listings/{id}/moderate",
     "listing_submit": "/listings/{id}/submit-for-moderation",
     "seller_apply": "/auth/requests/me/request-seller",
-    "admin_requests": "/auth/requests/seller",
-    "admin_approve": "/auth/requests/{id}/approve",
+    # 🔑 УДАЛЕНО: "admin_requests" (legacy модерация)
+    # 🔑 УДАЛЕНО: "admin_approve" (legacy модерация)
     "review": "/sellers/{id}/reviews",
 }
 
@@ -61,7 +58,9 @@ P = {
 def docker_exec(container, *cmd, check=True):
     return subprocess.run(
         ["docker", "exec", container, *cmd],
-        capture_output=True, text=True, check=check,
+        capture_output=True,
+        text=True,
+        check=check,
     )
 
 
@@ -156,39 +155,27 @@ def make_address(api: Api, apartment=None) -> dict:
 
 def make_seller(with_apartment: bool = True) -> Api:
     user = register_login()
-    
     # 🔑 НОВОЕ: Мгновенная активация роли продавца (без ИНН и модерации)
     r = user.post(
         P["seller_apply"],
         json={
             "accept_terms": True,
-        }
+        },
     )
     assert r.status_code in (200, 201, 202), f"seller_apply: {r.status_code} {r.text}"
-    
-    # 🔑 НОВОЕ: роль уже изменена на seller на бэкенде. 
+    # 🔑 НОВОЕ: роль уже изменена на seller на бэкенде.
     # Обновляем токен, чтобы фронтенд-клиент получил актуальный user_id и роль.
     r_refresh = user.post(P["refresh"])
     assert r_refresh.status_code == 200, f"refresh: {r_refresh.status_code} {r_refresh.text}"
     new_token = r_refresh.json().get("access_token")
     assert new_token, f"refresh не вернул access_token: {r_refresh.text}"
     user = Api(new_token)
-    
     # Теперь создаём адрес отправления с правильным user_id
     make_address(user, apartment="12" if with_apartment else None)
     return user
 
 
-def approve_last_seller_request():
-    admin = login(ADMIN_EMAIL, ADMIN_PASSWORD)
-    r = admin.get(P["admin_requests"])
-    assert r.status_code == 200, f"admin_requests: {r.status_code} {r.text}"
-    items = r.json()
-    items = items.get("items", items) if isinstance(items, dict) else items
-    assert items, "admin_requests: список заявок пуст"
-    req = items[-1]
-    r2 = admin.post(P["admin_approve"], fmt={"id": req["id"]})
-    assert r2.status_code in (200, 201), f"admin_approve: {r2.status_code} {r2.text}"
+# 🔑 УДАЛЕНО: функция approve_last_seller_request() (legacy модерация)
 
 
 def make_listing(seller: Api, price: int = 1500) -> dict:
@@ -207,7 +194,6 @@ def make_listing(seller: Api, price: int = 1500) -> dict:
     )
     assert r.status_code in (200, 201), f"listing: {r.status_code} {r.text}"
     listing = r.json()
-
     if listing.get("status") != "active":
         c = seller.post(
             P["listing_cover"],
@@ -215,17 +201,14 @@ def make_listing(seller: Api, price: int = 1500) -> dict:
             files={"file": ("cover.png", PNG_1X1, "image/png")},
         )
         assert c.status_code in (200, 201), f"cover upload: {c.status_code} {c.text}"
-
         a = seller.post(
             P["listing_audio_status"],
             fmt={"id": listing["id"]},
             json={"has_audio": True},
         )
         assert a.status_code in (200, 201), f"audio-status: {a.status_code} {a.text}"
-
         s = seller.post(P["listing_submit"], fmt={"id": listing["id"]})
         assert s.status_code in (200, 201), f"submit-for-moderation: {s.status_code} {s.text}"
-
         admin = login(ADMIN_EMAIL, ADMIN_PASSWORD)
         m = admin.post(
             P["listing_moderate"],
@@ -233,11 +216,9 @@ def make_listing(seller: Api, price: int = 1500) -> dict:
             json={"action": "approve"},
         )
         assert m.status_code in (200, 201), f"moderate: {m.status_code} {m.text}"
-
         g = seller.get(P["listing_get"], fmt={"id": listing["id"]})
         assert g.status_code == 200, f"listing_get: {g.status_code} {g.text}"
         listing = g.json()
-
     assert listing.get("status") == "active", f"listing не active: {listing.get('status')}"
     return listing
 
@@ -250,11 +231,9 @@ def build_checkout_payload(buyer: Api, items: list[dict], shipping: dict | None 
         assert r.status_code == 200, f"/me failed: {r.status_code} {r.text}"
         profile = r.json()
         buyer._profile = profile
-
     buyer_id = profile.get("id") or profile.get("user_id")
     customer_email = profile.get("email")
     assert buyer_id and customer_email, f"в профиле нет id/email: {profile}"
-
     payload = {
         "buyer_id": buyer_id,
         "customer_email": customer_email,
@@ -323,6 +302,7 @@ def gw_openapi() -> dict:
     try:
         r = docker_exec(GW_CONTAINER, "curl", "-s", "http://localhost:8000/openapi.json")
         import json
+
         return json.loads(r.stdout).get("paths", {})
     except Exception:
         return {}
