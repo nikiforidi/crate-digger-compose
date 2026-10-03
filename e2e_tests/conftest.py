@@ -19,7 +19,7 @@ API = f"{BASE_URL}/api/v1"
 DB_CONTAINER = os.getenv("E2E_DB_CONTAINER", "ci-db-1")
 GW_CONTAINER = os.getenv("E2E_GW_CONTAINER", "ci-gateway-1")
 ECONOMY_CONTAINER = os.getenv("E2E_ECONOMY_CONTAINER", "ci-economy-service-1")
-ADMIN_EMAIL = os.getenv("E2E_ADMIN_EMAIL", "admin@crate.market")
+ADMIN_EMAIL = os.getenv("E2E_ADMIN_EMAIL", "admin@waxey.ru")
 ADMIN_PASSWORD = os.getenv("E2E_ADMIN_PASSWORD", "admin123")
 PASSWORD = "E2e!Passw0rd#2026"
 RUN_SLOW = os.getenv("E2E_RUN_SLOW", "") == "1"
