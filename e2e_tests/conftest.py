@@ -145,6 +145,7 @@ def make_address(api: Api, apartment=None) -> dict:
         "apartment": apartment,
         "recipient_name": "E2E User",
         "phone": "+7 999 000-00-00",
+        "postal_code": "125009",
         "latitude": 55.760,
         "longitude": 37.605,
     }
