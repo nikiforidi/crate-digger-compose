@@ -25,11 +25,12 @@ on:
           - full
           - single
       service:
-        description: 'Сервис для точечного обновления'
+        description: 'Сервис для точечного обновления (только для режима single)'
         required: false
         default: ''
         type: choice
         options:
+          - ''
           - gateway
           - auth-service
           - crate-digger
@@ -57,6 +58,7 @@ jobs:
     if: github.event_name != 'workflow_dispatch' || github.event.inputs.deploy_mode == 'full'
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    
     env:
       COMPOSE_PROJECT_NAME: ci
       API_ID: ${{ secrets.TG_API_ID }}
@@ -71,6 +73,7 @@ jobs:
       INITIAL_ADMIN_EMAIL: ${{ secrets.INITIAL_ADMIN_EMAIL }}
       INTERNAL_SERVICE_TOKEN: ${{ secrets.INTERNAL_SERVICE_TOKEN }}
       NEXT_PUBLIC_API_URL: http://localhost
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -96,6 +99,7 @@ jobs:
         run: |
           echo "🚀 Starting infrastructure services..."
           docker compose --env-file .env.testing -f docker-compose.testing.yml up -d db redis minio createbuckets db-init
+          
           echo "⏳ Waiting for PostgreSQL to be ready..."
           for i in {1..15}; do
             if docker compose --env-file .env.testing -f docker-compose.testing.yml exec -T db pg_isready -U postgres > /dev/null 2>&1; then
@@ -103,11 +107,12 @@ jobs:
               break
             fi
             if [ $i -eq 3 ]; then
-              echo "⚠️ PostgreSQL still not ready, showing logs:"
+              echo "️ PostgreSQL still not ready, showing logs:"
               docker compose --env-file .env.testing -f docker-compose.testing.yml logs db --tail=30
             fi
             sleep 2
           done
+          
           echo "⏳ Waiting for db-init to complete..."
           for i in {1..10}; do
             if docker compose --env-file .env.testing -f docker-compose.testing.yml ps db-init | grep -q "Exit 0"; then
@@ -130,10 +135,12 @@ jobs:
           set -a
           source .env.testing
           set +a
+          
           for svc in auth-service crate-digger economy-service marketplace-service logistics-service review-service; do
             echo "→ $svc"
             docker compose --env-file .env.testing -f docker-compose.testing.yml run --rm --no-deps $svc alembic upgrade head
           done
+          
           echo "✅ All migrations applied successfully!"
 
       - name: Pull latest images
@@ -144,7 +151,7 @@ jobs:
 
       - name: Start Application Services
         run: |
-          echo "🚀 Starting application services (now that DB is ready)..."
+          echo " Starting application services (now that DB is ready)..."
           docker compose --env-file .env.testing -f docker-compose.testing.yml up -d
 
       - name: Wait for API readiness
@@ -171,16 +178,19 @@ jobs:
         run: |
           echo "🔍 Checking Gateway HTTP endpoint on port 8000..."
           curl -sf http://localhost:8000/health && echo " ✅"
+          
           echo ""
-          echo "🔍 Checking all services status via docker compose..."
+          echo " Checking all services status via docker compose..."
           UNHEALTHY=$(docker compose --env-file .env.testing -f docker-compose.testing.yml ps --format "{{.Service}} {{.Status}}" | \
             grep -E "^(auth-service|crate-digger|economy-service|marketplace-service|review-service|logistics-service|relay-api|preview-api|gateway|db|redis) " | \
             grep -v "(healthy)" || true)
+          
           if [ -n "$UNHEALTHY" ]; then
             echo "❌ Some services are not healthy:"
             echo "$UNHEALTHY"
             exit 1
           fi
+          
           echo "✅ All services are healthy!"
 
       - name: Install E2E test dependencies
@@ -222,9 +232,11 @@ jobs:
         run: |
           echo "📦 Container Status:"
           docker compose --env-file .env.testing -f docker-compose.testing.yml ps -a
+          
           echo ""
           echo "📜 MinIO Logs:"
           docker compose --env-file .env.testing -f docker-compose.testing.yml logs minio --tail=100
+          
           echo ""
           for svc in review-service logistics-service crate-digger auth-service economy-service marketplace-service marketplace-frontend gateway; do
             echo "📜 $svc Logs:"
@@ -248,9 +260,11 @@ jobs:
        (github.event_name == 'workflow_dispatch' && github.event.inputs.deploy_mode == 'full'))
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    
     environment:
       name: staging
       url: https://stage.waxey.ru
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -295,15 +309,20 @@ jobs:
           key: ${{ secrets.STAGE_SSH_KEY }}
           script: |
             cd /opt/waxey-stage
+            
             echo "${{ secrets.GHCR_PAT }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
             
             # ═══════════════════════════════════════════════════════
-            # ТОЧЕЧНЫЙ ДЕПЛОЙ (repository_dispatch от marketplace-frontend)
+            # ТОЧЕЧНЫЙ ДЕПЛОЙ (repository_dispatch от сервисов)
             # ═══════════════════════════════════════════════════════
             if [ "${{ github.event_name }}" = "repository_dispatch" ]; then
               SERVICE="${{ github.event.client_payload.service }}"
               TAG="${{ github.event.client_payload.version }}"
-              echo "🔄 Точечный деплой: $SERVICE → $TAG"
+              
+              # 🔑 КРИТИЧНО: Убираем префикс 'v' из тега, если он есть
+              TAG="${TAG#v}"
+              
+              echo " Точечный деплой: $SERVICE → $TAG"
               
               # Маппинг сервисов на ENV_KEY
               case "$SERVICE" in
@@ -323,17 +342,25 @@ jobs:
                 *) echo "❌ Неизвестный сервис: $SERVICE"; exit 1 ;;
               esac
               
+              # Обновляем .env.stage
               sed -i "s|^${ENV_KEY}=.*|${ENV_KEY}=${TAG}|" .env.stage
-           
+              
+              # 🔑 ОТЛАДКА: показываем, что записано в .env.stage
+              echo "📋 Обновленный тег в .env.stage:"
+              grep "^${ENV_KEY}=" .env.stage
+              
               # 1. Скачиваем новый образ
+              echo "📥 Скачиваем образ $SERVICE:$TAG..."
               docker compose --env-file .env.stage -f docker-compose.stage.yml pull "$SERVICE"
               
               # 2. Принудительно пересоздаём контейнер из нового образа
+              echo "🔄 Пересоздаём контейнер..."
               docker compose --env-file .env.stage -f docker-compose.stage.yml up -d --force-recreate --no-deps "$SERVICE"
               
               # Миграции для сервисов с БД
               case "$SERVICE" in
                 auth-service|crate-digger|economy-service|marketplace-service|logistics-service|review-service)
+                  echo "️ Применяем миграции для $SERVICE..."
                   docker compose --env-file .env.stage -f docker-compose.stage.yml run --rm --no-deps "$SERVICE" alembic upgrade head || true
                   ;;
               esac
@@ -341,10 +368,10 @@ jobs:
               echo "✅ Сервис $SERVICE обновлён до $TAG"
             
             # ═══════════════════════════════════════════════════════
-            # ПОЛНЫЙ ДЕПЛОЙ (push в main или workflow_dispatch)
+            # ПОЛНЫЙ ДЕПЛОЙ (push в main или workflow_dispatch full)
             # ═══════════════════════════════════════════════════════
             else
-              echo "🚀 Полный деплой на stage → latest"
+              echo " Полный деплой на stage → latest"
               
               # Обновляем все версии на latest
               sed -i "s|^GATEWAY_VERSION=.*|GATEWAY_VERSION=latest|" .env.stage
@@ -356,6 +383,7 @@ jobs:
               sed -i "s|^LOGISTICS_VERSION=.*|LOGISTICS_VERSION=latest|" .env.stage
               sed -i "s|^RELAY_VERSION=.*|RELAY_VERSION=latest|" .env.stage
               sed -i "s|^PREVIEW_VERSION=.*|PREVIEW_VERSION=latest|" .env.stage
+              
               # Фронтенд ВСЕГДА должен использовать stage-образ на стейдже
               sed -i "s|^FRONTEND_VERSION=.*|FRONTEND_VERSION=stage-latest|" .env.stage
               
@@ -363,15 +391,15 @@ jobs:
               grep "_VERSION=" .env.stage
               
               docker compose --env-file .env.stage -f docker-compose.stage.yml down --remove-orphans
-           
+              
               # Скачиваем все свежие образы
+              echo " Скачиваем все образы..."
               docker compose --env-file .env.stage -f docker-compose.stage.yml pull
-
               
               echo "⏳ Поднимаем инфраструктуру..."
               docker compose --env-file .env.stage -f docker-compose.stage.yml up -d db redis minio db-init
               
-              echo "⏳ Ожидаем PostgreSQL..."
+              echo " Ожидаем PostgreSQL..."
               for i in $(seq 1 30); do
                 if docker compose --env-file .env.stage -f docker-compose.stage.yml exec -T db pg_isready -U postgres > /dev/null 2>&1; then
                   echo "✅ PostgreSQL готов!"
@@ -396,6 +424,7 @@ jobs:
               done
               
               # Принудительно пересоздаем все контейнеры из свежих образов
+              echo "🔄 Пересоздаём все контейнеры..."
               docker compose --env-file .env.stage -f docker-compose.stage.yml up -d --force-recreate
               
               echo "⏳ Ожидаем сервисы (до 3 минут)..."
@@ -428,6 +457,7 @@ jobs:
           key: ${{ secrets.STAGE_SSH_KEY }}
           script: |
             cd /opt/waxey-stage
+            
             if [ ! -f "./certbot/conf/live/stage.waxey.ru/fullchain.pem" ]; then
               echo "🔐 Выпускаем SSL-сертификат..."
               mkdir -p certbot/conf certbot/www
@@ -449,12 +479,14 @@ jobs:
   # ЭТАП 3: ТОЧЕЧНЫЙ ДЕПЛОЙ ОДНОГО СЕРВИСА (ручной запуск)
   # ═══════════════════════════════════════════════════════
   deploy-single:
-    if: github.event_name == 'workflow_dispatch' && github.event.inputs.deploy_mode == 'single'
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.deploy_mode == 'single' && github.event.inputs.service != ''
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    
     environment:
       name: staging
       url: https://stage.waxey.ru
+
     steps:
       - name: Deploy single service
         uses: appleboy/ssh-action@v1.0.3
@@ -464,17 +496,14 @@ jobs:
           key: ${{ secrets.STAGE_SSH_KEY }}
           script: |
             cd /opt/waxey-stage
+            
             SERVICE="${{ github.event.inputs.service }}"
+            
             # Для точечного деплоя используем latest (последний стабильный образ)
             TAG="latest"
             
-            # Для фронтенда используем stage-latest
-            if [ "$SERVICE" = "marketplace-frontend" ]; then
-              TAG="stage-latest"
-            fi
-
             echo "🔄 Точечный деплой: $SERVICE → $TAG"
-
+            
             case "$SERVICE" in
               gateway)             ENV_KEY="GATEWAY_VERSION" ;;
               auth-service)        ENV_KEY="AUTH_VERSION" ;;
@@ -488,15 +517,23 @@ jobs:
               marketplace-frontend) ENV_KEY="FRONTEND_VERSION" ;;
               *) echo "❌ Неизвестный сервис: $SERVICE"; exit 1 ;;
             esac
-
+            
             sed -i "s|^${ENV_KEY}=.*|${ENV_KEY}=${TAG}|" .env.stage
+            
+            echo " Обновленный тег в .env.stage:"
+            grep "^${ENV_KEY}=" .env.stage
+            
             echo "${{ secrets.GHCR_PAT }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
             
+            echo "📥 Скачиваем образ $SERVICE:$TAG..."
             docker compose --env-file .env.stage -f docker-compose.stage.yml pull "$SERVICE"
+            
+            echo "🔄 Пересоздаём контейнер..."
             docker compose --env-file .env.stage -f docker-compose.stage.yml up -d --force-recreate --no-deps "$SERVICE"
             
             case "$SERVICE" in
               auth-service|crate-digger|economy-service|marketplace-service|logistics-service|review-service)
+                echo "🗄️ Применяем миграции для $SERVICE..."
                 docker compose --env-file .env.stage -f docker-compose.stage.yml run --rm --no-deps "$SERVICE" alembic upgrade head || true
                 ;;
             esac
