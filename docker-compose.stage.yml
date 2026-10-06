@@ -180,6 +180,7 @@ services:
     environment:
       - DATABASE_URL=postgresql://postgres:${DB_PASSWORD}@db:5432/marketplace_db
       - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/4
+      - CATALOG_SERVICE_URL=http://crate-digger:8000
       - MINIO_ENDPOINT=minio:9000
       - MINIO_ACCESS_KEY=${S3_ACCESS_KEY}
       - MINIO_SECRET_KEY=${S3_SECRET_KEY}
