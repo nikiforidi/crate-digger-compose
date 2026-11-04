@@ -260,33 +260,30 @@ def build_checkout_payload(buyer: Api, items: list[dict], shipping: dict | None 
     return payload
 
 
+# e2e_tests/conftest.py
+
 def make_shipping(address_id: str, point: dict | None = None) -> dict:
-    """Один объект ShippingRequest под схему economy-service (Ревизия 9)."""
+    """
+    Формирует объект shipping для CheckoutRequest economy-service.
+    
+    ВАЖНО:
+    - Поле 'address_id' здесь — это ID адреса покупателя.
+    - Economy-service примет этот 'address_id', сохранит его в Order.shipping_address_id,
+      а затем передаст в logistics-service как 'buyer_address_id'.
+    """
     point = point or {}
     return {
-        "address_id": address_id,
+        "address_id": address_id,  # Ключ для economy-service
         "carrier_code": point.get("provider_key", "apiship"),
         "service_code": "pvz",
         "shipping_cost": 350.0,
         "tariff_id": point.get("tariff_id", 200),
         "pickup_point_id": str(point.get("id", 1)),
-        # 🔑 НОВОЕ: обязательные поля Ревизии 9 для создания отправления в логистике
+        # Поля Ревизии 9
         "declared_weight_g": 450,
         "base_cost": 230.77,
         "markup": 69.23,
     }
-
-def simulate_payment(api: Api, order_id, success: bool = True) -> dict:
-    r = api.post(
-        P["payment_mock"],
-        params={"order_id": str(order_id), "success": str(success).lower()},
-    )
-    assert r.status_code == 200, f"simulate-payment: {r.status_code} {r.text}"
-    body = r.json()
-    expected = "paid" if success else "cancelled"
-    assert body.get("new_status") == expected, f"simulate-payment: {body}"
-    return body
-
 
 @pytest.fixture()
 def buyer() -> Api:
