@@ -91,6 +91,7 @@ services:
     environment:
       - DATABASE_URL=postgresql+asyncpg://postgres:${DB_PASSWORD}@db:5432/economy_db
       - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/2
+      - LOGISTICS_SERVICE_URL=http://logistics-service:8004
     depends_on:
       db: { condition: service_healthy }
       db-init: { condition: service_completed_successfully }
