@@ -250,7 +250,7 @@ def build_checkout_payload(buyer: Api, items: list[dict], shipping: dict | None 
 
 
 def make_shipping(address_id: str, point: dict | None = None) -> dict:
-    """Один объект ShippingRequest под схему economy-service."""
+    """Один объект ShippingRequest под схему economy-service (Ревизия 9)."""
     point = point or {}
     return {
         "address_id": address_id,
@@ -259,6 +259,10 @@ def make_shipping(address_id: str, point: dict | None = None) -> dict:
         "shipping_cost": 350.0,
         "tariff_id": point.get("tariff_id", 200),
         "pickup_point_id": str(point.get("id", 1)),
+        # 🔑 НОВОЕ: обязательные поля Ревизии 9 для создания отправления в логистике
+        "declared_weight_g": 450,
+        "base_cost": 230.77,
+        "markup": 69.23,
     }
 
 
