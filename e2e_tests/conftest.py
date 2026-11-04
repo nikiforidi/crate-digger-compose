@@ -265,7 +265,6 @@ def make_shipping(address_id: str, point: dict | None = None) -> dict:
         "markup": 69.23,
     }
 
-
 def simulate_payment(api: Api, order_id, success: bool = True) -> dict:
     r = api.post(
         P["payment_mock"],
