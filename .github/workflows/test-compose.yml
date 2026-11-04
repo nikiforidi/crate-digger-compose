@@ -128,6 +128,13 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GHCR_PAT }}
+      
+
+      - name: Pull latest images
+        run: |
+          echo "🔄 Pulling latest images from GHCR..."
+          docker compose --env-file .env.testing -f docker-compose.testing.yml pull
+          echo "✅ Images pulled successfully"
 
       - name: Run database migrations (Alembic)
         run: |
@@ -142,12 +149,6 @@ jobs:
           done
           
           echo "✅ All migrations applied successfully!"
-
-      - name: Pull latest images
-        run: |
-          echo "🔄 Pulling latest images from GHCR..."
-          docker compose --env-file .env.testing -f docker-compose.testing.yml pull
-          echo "✅ Images pulled successfully"
 
       - name: Start Application Services
         run: |
