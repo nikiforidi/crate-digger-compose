@@ -7,6 +7,7 @@
   (по одной строке shipping_orders на продавца).
 """
 import base64
+import json
 import os
 import subprocess
 import uuid
@@ -24,6 +25,7 @@ def get_container_logs(container: str, tail: int = 100) -> str:
         check=False,
     )
     return r.stdout + r.stderr
+
 
 BASE_URL = os.getenv("E2E_BASE_URL", "http://localhost").rstrip("/")
 API = f"{BASE_URL}/api/v1"
@@ -60,8 +62,6 @@ P = {
     "listing_moderate": "/listings/{id}/moderate",
     "listing_submit": "/listings/{id}/submit-for-moderation",
     "seller_apply": "/auth/requests/me/request-seller",
-    # 🔑 УДАЛЕНО: "admin_requests" (legacy модерация)
-    # 🔑 УДАЛЕНО: "admin_approve" (legacy модерация)
     "review": "/sellers/{id}/reviews",
 }
 
@@ -167,28 +167,21 @@ def make_address(api: Api, apartment=None) -> dict:
 
 def make_seller(with_apartment: bool = True) -> Api:
     user = register_login()
-    # 🔑 ОБНОВЛЕНО: Мгновенная активация роли продавца с указанием статуса (Ревизия 9)
     r = user.post(
         P["seller_apply"],
         json={
             "accept_terms": True,
-            "seller_status": "private",  # 🔑 ДОБАВЛЕНО: обязательное поле
+            "seller_status": "private",
         },
     )
     assert r.status_code in (200, 201, 202), f"seller_apply: {r.status_code} {r.text}"
-    # 🔑 НОВОЕ: роль уже изменена на seller на бэкенде.
-    # Обновляем токен, чтобы фронтенд-клиент получил актуальный user_id и роль.
     r_refresh = user.post(P["refresh"])
     assert r_refresh.status_code == 200, f"refresh: {r_refresh.status_code} {r_refresh.text}"
     new_token = r_refresh.json().get("access_token")
     assert new_token, f"refresh не вернул access_token: {r_refresh.text}"
     user = Api(new_token)
-    # Теперь создаём адрес отправления с правильным user_id
     make_address(user, apartment="12" if with_apartment else None)
     return user
-
-
-# 🔑 УДАЛЕНО: функция approve_last_seller_request() (legacy модерация)
 
 
 def make_listing(seller: Api, price: int = 1500) -> dict:
@@ -260,12 +253,9 @@ def build_checkout_payload(buyer: Api, items: list[dict], shipping: dict | None 
     return payload
 
 
-# e2e_tests/conftest.py
-
 def make_shipping(address_id: str, point: dict | None = None) -> dict:
     """
     Формирует объект shipping для CheckoutRequest economy-service.
-    
     ВАЖНО:
     - Поле 'address_id' здесь — это ID адреса покупателя.
     - Economy-service примет этот 'address_id', сохранит его в Order.shipping_address_id,
@@ -273,17 +263,28 @@ def make_shipping(address_id: str, point: dict | None = None) -> dict:
     """
     point = point or {}
     return {
-        "address_id": address_id,  # Ключ для economy-service
+        "address_id": address_id,
         "carrier_code": point.get("provider_key", "apiship"),
         "service_code": "pvz",
         "shipping_cost": 350.0,
         "tariff_id": point.get("tariff_id", 200),
         "pickup_point_id": str(point.get("id", 1)),
-        # Поля Ревизии 9
         "declared_weight_g": 450,
         "base_cost": 230.77,
         "markup": 69.23,
     }
+
+
+# 🔑 НОВОЕ: функция simulate_payment
+def simulate_payment(api: Api, order_id: str, success: bool = True) -> dict:
+    """Имитирует оплату заказа через mock-эндпоинт economy-service."""
+    r = api.post(
+        P["payment_mock"],
+        params={"order_id": order_id, "success": str(success).lower()},
+    )
+    assert r.status_code == 200, f"simulate_payment: {r.status_code} {r.text}"
+    return r.json()
+
 
 @pytest.fixture()
 def buyer() -> Api:
@@ -314,8 +315,6 @@ def listing_b(seller_b) -> dict:
 def gw_openapi() -> dict:
     try:
         r = docker_exec(GW_CONTAINER, "curl", "-s", "http://localhost:8000/openapi.json")
-        import json
-
         return json.loads(r.stdout).get("paths", {})
     except Exception:
         return {}
