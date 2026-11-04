@@ -14,6 +14,17 @@ import uuid
 import httpx
 import pytest
 
+
+def get_container_logs(container: str, tail: int = 100) -> str:
+    """Получить логи контейнера для отладки."""
+    r = subprocess.run(
+        ["docker", "logs", container, "--tail", str(tail)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return r.stdout + r.stderr
+
 BASE_URL = os.getenv("E2E_BASE_URL", "http://localhost").rstrip("/")
 API = f"{BASE_URL}/api/v1"
 DB_CONTAINER = os.getenv("E2E_DB_CONTAINER", "ci-db-1")

@@ -1,11 +1,12 @@
 """Сценарий 4 (ядро рефакторинга): сплит-корзина двух продавцов."""
 import json
 
+# В начале test_04_split_checkout.py и test_05_dispatch.py добавь:
 from conftest import (
     P, build_checkout_payload, make_address, make_shipping,
-    register_login, simulate_payment, sql,
+    register_login, simulate_payment, sql, get_container_logs,  # 🔑 ДОБАВЛЕНО
+    ECONOMY_CONTAINER,  # 🔑 ДОБАВЛЕНО
 )
-
 
 def _pick_point(buyer, city="Москва"):
     r = buyer.get(P["shipping_points"], params={"provider_key": "apiship", "city": city})
@@ -52,7 +53,7 @@ def test_split_checkout_creates_two_shipments(listing_a, listing_b):
     buyer = register_login()
     addr = make_address(buyer, apartment=None)
     point = _pick_point(buyer)
-
+    
     payload = build_checkout_payload(
         buyer,
         items=[
@@ -61,30 +62,45 @@ def test_split_checkout_creates_two_shipments(listing_a, listing_b):
         ],
         shipping=make_shipping(addr["id"], point),
     )
-
+    
     r = buyer.post(P["checkout"], json=payload)
     assert r.status_code in (200, 201), f"checkout: {r.status_code} {r.text}"
     order = r.json()
     order_id = order.get("order_id") or order.get("id")
     assert order_id, f"нет order id в ответе: {order}"
-
+    
     # один заказ, две позиции
     assert sql("economy_db", f"SELECT count(*) FROM orders WHERE id='{order_id}'") == "1"
     assert sql("economy_db", f"SELECT count(*) FROM order_items WHERE order_id='{order_id}'") == "2"
-
+    
+    # 🔑 ДЕБАГ: показываем payload, который отправляем в checkout
+    print(f"\n[DEBUG] Checkout payload:\n{json.dumps(payload, indent=2, ensure_ascii=False)}")
+    
     # оплата → economy создаёт отправки (по одной на seller_id)
     simulate_payment(buyer, order_id)
     assert sql("economy_db", f"SELECT status FROM orders WHERE id='{order_id}'") == "paid"
-
+    
+    # 🔑 ДЕБАГ: логи economy-service после оплаты
+    economy_logs = get_container_logs(ECONOMY_CONTAINER, tail=50)
+    print(f"\n[DEBUG] Economy service logs after payment:\n{economy_logs}")
+    
+    # 🔑 ДЕБАГ: логи logistics-service
+    logistics_logs = get_container_logs("ci-logistics-service-1", tail=50)
+    print(f"\n[DEBUG] Logistics service logs:\n{logistics_logs}")
+    
     # 🔑 ОТЛАДКА: смотрим, что economy отправила в логистику
     ship_count = sql(
         "logistics_db",
         f"SELECT count(*) FROM shipping_orders WHERE order_id='{order_id}'",
     )
-    print(f"[DEBUG] shipping_orders for order {order_id}: {ship_count}")
+    print(f"\n[DEBUG] shipping_orders for order {order_id}: {ship_count}")
     all_ship = sql("logistics_db", "SELECT order_id, seller_id, status FROM shipping_orders ORDER BY created_at DESC LIMIT 10")
     print(f"[DEBUG] last shipping_orders:\n{all_ship}")
-
+    
+    # 🔑 ДЕБАГ: проверяем, есть ли вообще записи в shipping_orders
+    total_ships = sql("logistics_db", "SELECT count(*) FROM shipping_orders")
+    print(f"[DEBUG] Total shipping_orders in DB: {total_ships}")
+    
     assert ship_count == "2", f"ожидали 2 shipping_orders, получили {ship_count}"
     sellers = sql(
         "logistics_db",

@@ -5,31 +5,49 @@ from conftest import (
 )
 
 
+
 def _checkout_and_pay(buyer, listing):
     # 🔑 ОТЛАДКА
     addr_users = sql("logistics_db", "SELECT user_id FROM user_addresses ORDER BY user_id")
-    print(f"[DEBUG] ALL user_id in logistics.user_addresses:\n{addr_users}")
+    print(f"\n[DEBUG] ALL user_id in logistics.user_addresses:\n{addr_users}")
     print(f"[DEBUG] listing seller_id: {listing['seller_id']}")
     cnt = sql("logistics_db", f"SELECT count(*) FROM user_addresses WHERE user_id='{listing['seller_id']}'")
     print(f"[DEBUG] addresses for seller (by exact seller_id): {cnt}")
-
+    
     addr = make_address(buyer, apartment=None)
     r = buyer.get(P["shipping_points"], params={"provider_key": "apiship", "city": "Москва"})
     points = r.json()
     points = points.get("items", points) if isinstance(points, dict) else points
     point = points[0]
-
+    
     payload = build_checkout_payload(
         buyer,
         items=[{"listing_id": listing["id"], "seller_price": listing["price"]}],
         shipping=make_shipping(addr["id"], point),
     )
+    
+    # 🔑 ДЕБАГ: показываем payload
+    import json
+    print(f"\n[DEBUG] Checkout payload:\n{json.dumps(payload, indent=2, ensure_ascii=False)}")
+    
     r = buyer.post(P["checkout"], json=payload)
     assert r.status_code in (200, 201), f"checkout: {r.status_code} {r.text}"
     order_id = r.json().get("order_id") or r.json().get("id")
+    
+    # 🔑 ДЕБАГ: логи до оплаты
+    economy_logs_before = get_container_logs(ECONOMY_CONTAINER, tail=30)
+    print(f"\n[DEBUG] Economy logs before payment:\n{economy_logs_before}")
+    
     simulate_payment(buyer, order_id)
+    
+    # 🔑 ДЕБАГ: логи после оплаты
+    economy_logs_after = get_container_logs(ECONOMY_CONTAINER, tail=50)
+    print(f"\n[DEBUG] Economy logs after payment:\n{economy_logs_after}")
+    
+    logistics_logs = get_container_logs("ci-logistics-service-1", tail=50)
+    print(f"\n[DEBUG] Logistics logs:\n{logistics_logs}")
+    
     return order_id
-
 
 def test_handover_sets_dispatched(seller_a, listing_a):
     buyer = register_login()

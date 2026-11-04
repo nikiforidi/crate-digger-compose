@@ -232,18 +232,21 @@ jobs:
         run: |
           echo "📦 Container Status:"
           docker compose --env-file .env.testing -f docker-compose.testing.yml ps -a
-          
           echo ""
           echo "📜 MinIO Logs:"
           docker compose --env-file .env.testing -f docker-compose.testing.yml logs minio --tail=100
-          
           echo ""
           for svc in review-service logistics-service crate-digger auth-service economy-service marketplace-service marketplace-frontend gateway; do
-            echo "📜 $svc Logs:"
-            docker compose --env-file .env.testing -f docker-compose.testing.yml logs $svc --tail=50
+            echo "📜 $svc Logs (LAST 100):"
+            docker compose --env-file .env.testing -f docker-compose.testing.yml logs $svc --tail=100
             echo ""
           done
-
+          echo "📜 Economy Service Logs (FULL - для диагностики shipping):"
+          docker compose --env-file .env.testing -f docker-compose.testing.yml logs economy-service --tail=200
+          echo ""
+          echo "📜 Logistics Service Logs (FULL - для диагностики shipping):"
+          docker compose --env-file .env.testing -f docker-compose.testing.yml logs logistics-service --tail=200
+          
       - name: Cleanup
         if: always()
         run: docker compose --env-file .env.testing -f docker-compose.testing.yml down -v
