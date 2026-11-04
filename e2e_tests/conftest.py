@@ -156,11 +156,12 @@ def make_address(api: Api, apartment=None) -> dict:
 
 def make_seller(with_apartment: bool = True) -> Api:
     user = register_login()
-    # 🔑 НОВОЕ: Мгновенная активация роли продавца (без ИНН и модерации)
+    # 🔑 ОБНОВЛЕНО: Мгновенная активация роли продавца с указанием статуса (Ревизия 9)
     r = user.post(
         P["seller_apply"],
         json={
             "accept_terms": True,
+            "seller_status": "private",  # 🔑 ДОБАВЛЕНО: обязательное поле
         },
     )
     assert r.status_code in (200, 201, 202), f"seller_apply: {r.status_code} {r.text}"
