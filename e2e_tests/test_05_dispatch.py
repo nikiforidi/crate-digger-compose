@@ -1,7 +1,7 @@
 """Сценарий 5: продавец сдаёт посылку → dispatched_at в экономике."""
 from conftest import (
     P, build_checkout_payload, make_address, make_shipping,
-    register_login, simulate_payment, sql,
+    register_login, simulate_payment, sql, get_container_logs, ECONOMY_CONTAINER
 )
 
 
