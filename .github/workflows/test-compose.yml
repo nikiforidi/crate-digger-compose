@@ -452,8 +452,7 @@ jobs:
               
               echo "✅ Деплой завершён успешно"
             fi
-
-      - name: Ensure SSL certificate
+      - name: Ensure SSL certificates
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.STAGE_HOST }}
@@ -461,10 +460,11 @@ jobs:
           key: ${{ secrets.STAGE_SSH_KEY }}
           script: |
             cd /opt/waxey-stage
-            
+            mkdir -p certbot/conf certbot/www
+
+            # 1. Сертификат для stage.waxey.ru
             if [ ! -f "./certbot/conf/live/stage.waxey.ru/fullchain.pem" ]; then
-              echo "🔐 Выпускаем SSL-сертификат..."
-              mkdir -p certbot/conf certbot/www
+              echo "🔐 Выпускаем SSL для stage.waxey.ru..."
               docker run --rm \
                 -v $(pwd)/certbot/conf:/etc/letsencrypt \
                 -v $(pwd)/certbot/www:/var/www/certbot \
@@ -473,12 +473,29 @@ jobs:
                 -d stage.waxey.ru \
                 --email legal@waxey.ru \
                 --agree-tos --no-eff-email
-              docker compose --env-file .env.stage -f docker-compose.stage.yml restart nginx
-              echo "✅ SSL выпущен"
             else
-              echo "✅ SSL уже существует"
+              echo "✅ SSL для stage.waxey.ru уже существует"
             fi
 
+            # 2. Сертификат для waxey.ru и www.waxey.ru (для редиректа)
+            if [ ! -f "./certbot/conf/live/waxey.ru/fullchain.pem" ]; then
+              echo "🔐 Выпускаем SSL для waxey.ru и www.waxey.ru..."
+              docker run --rm \
+                -v $(pwd)/certbot/conf:/etc/letsencrypt \
+                -v $(pwd)/certbot/www:/var/www/certbot \
+                certbot/certbot certonly --webroot \
+                -w /var/www/certbot \
+                -d waxey.ru -d www.waxey.ru \
+                --email legal@waxey.ru \
+                --agree-tos --no-eff-email
+            else
+              echo "✅ SSL для waxey.ru уже существует"
+            fi
+
+            # 3. Перезапускаем nginx, чтобы он гарантированно подхватил сертификаты
+            echo "🔄 Перезапускаем nginx..."
+            docker compose --env-file .env.stage -f docker-compose.stage.yml restart nginx
+            echo "✅ SSL проверка и перезапуск завершены"
   # ═══════════════════════════════════════════════════════
   # ЭТАП 3: ТОЧЕЧНЫЙ ДЕПЛОЙ ОДНОГО СЕРВИСА (ручной запуск)
   # ═══════════════════════════════════════════════════════
